@@ -99,8 +99,8 @@ void sqlite3BtreeCachedRowidSet(BtCursor *pCur, u64 iRowid);
 i64 sqlite3BtreeCachedRowidGet(BtCursor *pCur);
 int sqlite3BtreeCachedRowidSetByOpenCursor(BtCursor *pCur);
 
-int sqlite3BtreeBeginTransAll(Btree *p, int wrflag);
-int sqlite3BtreeBeginTransOriginal(Btree *p, int wrflag);
+int sqlite3BtreeBeginTransAll(Btree *p, int wrflag, int *pSchemaVersion);
+int sqlite3BtreeBeginTransOriginal(Btree *p, int wrflag, int *pSchemaVersion);
 int sqlite3BtreeIsInTransAll(Btree *p);
 int sqlite3BtreeIsInTransOriginal(Btree *p);
 int sqlite3BtreeBeginTransForCommit(sqlite3 *db);
@@ -140,6 +140,10 @@ int sqlite3BtreeCursorHasMovedAll(BtCursor *pCur);
 int sqlite3BtreeCursorIsValidOriginal(BtCursor *pCur);
 int sqlite3BtreeCursorIsValidAll(BtCursor *pCur);
 #endif
+#ifndef SQLITE_OMIT_WINDOWFUNC
+void sqlite3BtreeSkipNextOriginal(BtCursor *pCur);
+void sqlite3BtreeSkipNextAll(BtCursor *pCur);
+#endif /* SQLITE_OMIT_WINDOWFUNC */
 int sqlite3BtreeMovetoUnpackedAll(BtCursor *pCur, UnpackedRecord *pIdxKey, i64 intKey, int biasRight, int *pRes, int opcode);
 
 

@@ -14,12 +14,16 @@ void floorFunc(sqlite3_context *context, int argc, sqlite3_value **argv);
 void modFunc(sqlite3_context *context, int argc, sqlite3_value **argv);
 void truncFunc(sqlite3_context *context, int argc, sqlite3_value **argv);
 void varianceStep(sqlite3_context *context, int argc, sqlite3_value **argv);
+void varianceInverse(sqlite3_context *context, int argc, sqlite3_value **argv);
 void varianceFinalize(sqlite3_context *context);
 void variancePStep(sqlite3_context *context, int argc, sqlite3_value **argv);
+void variancePInverse(sqlite3_context *context, int argc, sqlite3_value **argv);
 void variancePFinalize(sqlite3_context *context);
 void stddevStep(sqlite3_context *context, int argc, sqlite3_value **argv);
+void stddevInverse(sqlite3_context *context, int argc, sqlite3_value **argv);
 void stddevFinalize(sqlite3_context *context);
 void stddevPStep(sqlite3_context *context, int argc, sqlite3_value **argv);
+void stddevPInverse(sqlite3_context *context, int argc, sqlite3_value **argv);
 void stddevPFinalize(sqlite3_context *context);
 void nvlFunc(sqlite3_context *context, int argc, sqlite3_value **argv);
 void asciiFunc(sqlite3_context *context, int argc, sqlite3_value **argv);
@@ -37,10 +41,14 @@ void rpadFunc(sqlite3_context *context, int argc, sqlite3_value **argv);
   FUNCTION(ceiling,            1, 0, 0, ceilFunc          ), \
   FUNCTION(floor,              1, 0, 0, floorFunc         ), \
   FUNCTION(mod,                2, 0, 0, modFunc           ), \
-  AGGREGATE(variance,          1, 0, 0, varianceStep,     varianceFinalize ), \
-  AGGREGATE(variancep,         1, 0, 0, variancePStep,    variancePFinalize), \
-  AGGREGATE(stddev,            1, 0, 0, stddevStep,       stddevFinalize   ), \
-  AGGREGATE(stddevp,           1, 0, 0, stddevPStep,      stddevPFinalize  ), \
+  WAGGREGATE(variance,  1,0,0, varianceStep, \
+      varianceFinalize, varianceFinalize, varianceInverse, 0), \
+  WAGGREGATE(variancep, 1,0,0, variancePStep, \
+      variancePFinalize, variancePFinalize, variancePInverse, 0), \
+  WAGGREGATE(stddev,    1,0,0, stddevStep, \
+      stddevFinalize, stddevFinalize, stddevInverse, 0), \
+  WAGGREGATE(stddevp,   1,0,0, stddevPStep, \
+      stddevPFinalize, stddevPFinalize, stddevPInverse, 0), \
   FUNCTION(nvl,                2, 0, 0, nvlFunc           ), \
   FUNCTION(asc,                1, 0, 0, asciiFunc         ), \
   FUNCTION(ascii,              1, 0, 0, asciiFunc         ), \

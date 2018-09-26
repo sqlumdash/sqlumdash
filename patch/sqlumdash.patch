@@ -1,7 +1,7 @@
-diff -ru sqlite-src-3240000/Makefile.msc SQLumDash/Makefile.msc
---- sqlite-src-3240000/Makefile.msc	2018-06-05 02:51:20.000000000 +0900
-+++ SQLumDash/Makefile.msc	2018-09-14 17:35:47.000000000 +0900
-@@ -932,8 +932,8 @@
+diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
+--- sqlite-src-3250000/Makefile.msc	2018-09-15 20:35:52.000000000 +0900
++++ SQLumDash3.25.0/Makefile.msc	2018-09-26 12:01:22.000000000 +0900
+@@ -950,8 +950,8 @@
  
  # Should the database engine be compiled threadsafe
  #
@@ -12,7 +12,7 @@ diff -ru sqlite-src-3240000/Makefile.msc SQLumDash/Makefile.msc
  
  # Do threads override each others locks by default (1), or do we test (-1)
  #
-@@ -946,6 +946,8 @@
+@@ -964,6 +964,8 @@
  TLIBS =
  !ENDIF
  
@@ -21,17 +21,17 @@ diff -ru sqlite-src-3240000/Makefile.msc SQLumDash/Makefile.msc
  # Flags controlling use of the in memory btree implementation
  #
  # SQLITE_TEMP_STORE is 0 to force temporary tables to be in a file, 1 to
-@@ -1196,7 +1198,8 @@
+@@ -1214,7 +1216,8 @@
           update.lo upsert.lo util.lo vacuum.lo \
           vdbeapi.lo vdbeaux.lo vdbeblob.lo vdbemem.lo vdbesort.lo \
           vdbetrace.lo wal.lo walker.lo where.lo wherecode.lo whereexpr.lo \
--         utf.lo vtab.lo
-+         utf.lo vtab.lo \
+-         window.lo utf.lo vtab.lo
++         window.lo utf.lo vtab.lo \
 +         rowlock.lo rowlock_hash.lo rowlock_ipc.lo rowlock_ipc_row.lo rowlock_ipc_table.lo rowlock_savepoint.lo
  # <</mark>>
  
  # Object files for the amalgamation.
-@@ -1247,6 +1250,7 @@
+@@ -1265,6 +1268,7 @@
    $(TOP)\src\fault.c \
    $(TOP)\src\fkey.c \
    $(TOP)\src\func.c \
@@ -39,12 +39,12 @@ diff -ru sqlite-src-3240000/Makefile.msc SQLumDash/Makefile.msc
    $(TOP)\src\global.c \
    $(TOP)\src\hash.c \
    $(TOP)\src\insert.c \
-@@ -1307,7 +1311,15 @@
-   $(TOP)\src\walker.c \
+@@ -1326,7 +1330,15 @@
    $(TOP)\src\where.c \
    $(TOP)\src\wherecode.c \
--  $(TOP)\src\whereexpr.c
-+  $(TOP)\src\whereexpr.c \
+   $(TOP)\src\whereexpr.c \
+-  $(TOP)\src\window.c
++  $(TOP)\src\window.c \
 +  $(TOP)\src\rowlock.c \
 +  $(TOP)\src\rowlock_btree.c \
 +  $(TOP)\src\rowlock_hash.c \
@@ -56,7 +56,7 @@ diff -ru sqlite-src-3240000/Makefile.msc SQLumDash/Makefile.msc
  
  # Core miscellaneous files.
  #
-@@ -1319,6 +1331,7 @@
+@@ -1338,6 +1350,7 @@
  SRC04 = \
    $(TOP)\src\btree.h \
    $(TOP)\src\btreeInt.h \
@@ -64,7 +64,7 @@ diff -ru sqlite-src-3240000/Makefile.msc SQLumDash/Makefile.msc
    $(TOP)\src\hash.h \
    $(TOP)\src\hwtime.h \
    $(TOP)\src\msvc.h \
-@@ -1342,7 +1355,14 @@
+@@ -1361,7 +1374,14 @@
    $(TOP)\src\vdbeInt.h \
    $(TOP)\src\vxworks.h \
    $(TOP)\src\wal.h \
@@ -80,7 +80,7 @@ diff -ru sqlite-src-3240000/Makefile.msc SQLumDash/Makefile.msc
  
  # Extension source code files, part 1.
  #
-@@ -1555,7 +1575,14 @@
+@@ -1576,7 +1596,14 @@
     $(TOP)\src\vdbe.h \
     $(TOP)\src\vdbeInt.h \
     $(TOP)\src\vxworks.h \
@@ -96,7 +96,7 @@ diff -ru sqlite-src-3240000/Makefile.msc SQLumDash/Makefile.msc
  
  # Header files used by extensions
  #
-@@ -1641,7 +1668,7 @@
+@@ -1662,7 +1689,7 @@
  # This is the default Makefile target.  The objects listed here
  # are what get build when you type just "make" with no arguments.
  #
@@ -105,7 +105,7 @@ diff -ru sqlite-src-3240000/Makefile.msc SQLumDash/Makefile.msc
  
  # Targets that require the Tcl library.
  #
-@@ -1674,8 +1701,10 @@
+@@ -1695,8 +1722,10 @@
  sqlite3.def:	libsqlite3.lib
  	echo EXPORTS > sqlite3.def
  	dumpbin /all libsqlite3.lib \
@@ -118,9 +118,9 @@ diff -ru sqlite-src-3240000/Makefile.msc SQLumDash/Makefile.msc
  # <</block2>>
  
  $(SQLITE3EXE):	shell.c $(SHELL_CORE_DEP) $(LIBRESOBJS) $(SHELL_CORE_SRC) $(SQLITE3H)
-@@ -2046,6 +2075,24 @@
- whereexpr.lo:	$(TOP)\src\whereexpr.c $(HDR)
- 	$(LTCOMPILE) $(CORE_COMPILE_OPTS) -c $(TOP)\src\whereexpr.c
+@@ -2070,6 +2099,24 @@
+ window.lo:	$(TOP)\src\window.c $(HDR)
+ 	$(LTCOMPILE) $(CORE_COMPILE_OPTS) -c $(TOP)\src\window.c
  
 +rowlock.lo:	$(TOP)\src\rowlock.c $(HDR)
 +	$(LTCOMPILE) $(CORE_COMPILE_OPTS) -c $(TOP)\src\rowlock.c
@@ -143,7 +143,7 @@ diff -ru sqlite-src-3240000/Makefile.msc SQLumDash/Makefile.msc
  tclsqlite.lo:	$(TOP)\src\tclsqlite.c $(HDR) $(SQLITE_TCL_DEP)
  	$(LTCOMPILE) $(NO_WARN) -DUSE_TCL_STUBS=1 -DBUILD_sqlite -I$(TCLINCDIR) -c $(TOP)\src\tclsqlite.c
  
-@@ -2117,6 +2164,18 @@
+@@ -2141,6 +2188,18 @@
  zlib:
  	pushd $(ZLIBDIR) && $(MAKE) /f win32\Makefile.msc clean $(ZLIBLIB) && popd
  
@@ -162,17 +162,17 @@ diff -ru sqlite-src-3240000/Makefile.msc SQLumDash/Makefile.msc
  # Rules to build the extension objects.
  #
  icu.lo:	$(TOP)\ext\icu\icu.c $(HDR) $(EXTHDR)
-@@ -2479,4 +2538,5 @@
+@@ -2512,4 +2571,5 @@
  	del /Q showshm.exe sqlite3_checker.* sqlite3_expert.exe 2>NUL
  	del /Q fts5.* fts5parse.* 2>NUL
  	del /Q lsm.h lsm1.c 2>NUL
 +	del /Q sqlumdash_cleaner.exe 2>NUL
  # <</mark>>
-sqlite-src-3240000 のみに存在: compat
-diff -ru sqlite-src-3240000/src/alter.c SQLumDash/src/alter.c
---- sqlite-src-3240000/src/alter.c	2018-06-05 02:51:20.000000000 +0900
-+++ SQLumDash/src/alter.c	2018-09-14 17:35:49.000000000 +0900
-@@ -465,6 +465,8 @@
+sqlite-src-3250000 のみに存在: compat
+diff -ru sqlite-src-3250000/src/alter.c SQLumDash3.25.0/src/alter.c
+--- sqlite-src-3250000/src/alter.c	2018-09-15 20:35:52.000000000 +0900
++++ SQLumDash3.25.0/src/alter.c	2018-09-26 12:01:22.000000000 +0900
+@@ -159,6 +159,8 @@
    }
  #endif
  
@@ -181,18 +181,18 @@ diff -ru sqlite-src-3240000/src/alter.c SQLumDash/src/alter.c
    /* Begin a transaction for database iDb. 
    ** Then modify the schema cookie (since the ALTER TABLE modifies the
    ** schema). Open a statement transaction if the table is a virtual
-@@ -795,6 +797,8 @@
+@@ -463,6 +465,8 @@
    pNew->addColOffset = pTab->addColOffset;
    pNew->nTabRef = 1;
  
 +  ROWLOCK_TABLE_LOCK();
 +
-   /* Begin a transaction and increment the schema cookie.  */
-   sqlite3BeginWriteOperation(pParse, 0, iDb);
-   v = sqlite3GetVdbe(pParse);
-diff -ru sqlite-src-3240000/src/btree.c SQLumDash/src/btree.c
---- sqlite-src-3240000/src/btree.c	2018-06-05 02:51:20.000000000 +0900
-+++ SQLumDash/src/btree.c	2018-09-14 17:35:49.000000000 +0900
+ exit_begin_add_column:
+   sqlite3SrcListDelete(db, pSrc);
+   return;
+diff -ru sqlite-src-3250000/src/btree.c SQLumDash3.25.0/src/btree.c
+--- sqlite-src-3250000/src/btree.c	2018-09-15 20:35:52.000000000 +0900
++++ SQLumDash3.25.0/src/btree.c	2018-09-26 12:01:22.000000000 +0900
 @@ -165,7 +165,7 @@
  ** hold a write-lock on the schema table (root page 1). This is also
  ** acceptable.
@@ -242,12 +242,12 @@ diff -ru sqlite-src-3240000/src/btree.c SQLumDash/src/btree.c
  ** when A already has a read lock, we encourage A to give up and let B
  ** proceed.
  */
--int sqlite3BtreeBeginTrans(Btree *p, int wrflag){
-+int sqlite3BtreeBeginTransOriginal(Btree *p, int wrflag){
+-int sqlite3BtreeBeginTrans(Btree *p, int wrflag, int *pSchemaVersion){
++int sqlite3BtreeBeginTransOriginal(Btree *p, int wrflag, int *pSchemaVersion){
    BtShared *pBt = p->pBt;
    int rc = SQLITE_OK;
  
-@@ -3895,6 +3895,7 @@
+@@ -3910,6 +3910,7 @@
    if( p->inTrans==TRANS_WRITE ){
      BtShared *pBt = p->pBt;
      sqlite3BtreeEnter(p);
@@ -255,7 +255,7 @@ diff -ru sqlite-src-3240000/src/btree.c SQLumDash/src/btree.c
  #ifndef SQLITE_OMIT_AUTOVACUUM
      if( pBt->autoVacuum ){
        rc = autoVacuumCommit(pBt);
-@@ -4087,7 +4088,7 @@
+@@ -4102,7 +4103,7 @@
  ** This will release the write lock on the database file.  If there
  ** are no active cursors, it also releases the read lock.
  */
@@ -264,7 +264,7 @@ diff -ru sqlite-src-3240000/src/btree.c SQLumDash/src/btree.c
    int rc;
    BtShared *pBt = p->pBt;
    MemPage *pPage1;
-@@ -4156,7 +4157,7 @@
+@@ -4171,7 +4172,7 @@
  ** iStatement is 1. This anonymous savepoint can be released or rolled back
  ** using the sqlite3BtreeSavepoint() function.
  */
@@ -273,7 +273,7 @@ diff -ru sqlite-src-3240000/src/btree.c SQLumDash/src/btree.c
    int rc;
    BtShared *pBt = p->pBt;
    sqlite3BtreeEnter(p);
-@@ -4187,7 +4188,7 @@
+@@ -4202,7 +4203,7 @@
  ** from a normal transaction rollback, as no locks are released and the
  ** transaction remains open.
  */
@@ -282,7 +282,7 @@ diff -ru sqlite-src-3240000/src/btree.c SQLumDash/src/btree.c
    int rc = SQLITE_OK;
    if( p && p->inTrans==TRANS_WRITE ){
      BtShared *pBt = p->pBt;
-@@ -4319,7 +4320,7 @@
+@@ -4334,7 +4335,7 @@
    pCur->eState = CURSOR_INVALID;
    return SQLITE_OK;
  }
@@ -291,7 +291,7 @@ diff -ru sqlite-src-3240000/src/btree.c SQLumDash/src/btree.c
    Btree *p,                                   /* The btree */
    int iTable,                                 /* Root page of table to open */
    int wrFlag,                                 /* 1 to write. 0 read-only */
-@@ -4365,7 +4366,7 @@
+@@ -4380,7 +4381,7 @@
  ** Close a cursor.  The read lock on the database file is released
  ** when the last cursor is closed.
  */
@@ -300,7 +300,7 @@ diff -ru sqlite-src-3240000/src/btree.c SQLumDash/src/btree.c
    Btree *pBtree = pCur->pBtree;
    if( pBtree ){
      BtShared *pBt = pCur->pBt;
-@@ -4433,7 +4434,7 @@
+@@ -4448,7 +4449,7 @@
  ** that is currently pointing to a row in a (non-empty) table.
  ** This is a verification routine is used only within assert() statements.
  */
@@ -309,7 +309,7 @@ diff -ru sqlite-src-3240000/src/btree.c SQLumDash/src/btree.c
    return pCur && pCur->eState==CURSOR_VALID;
  }
  #endif /* NDEBUG */
-@@ -4448,7 +4449,7 @@
+@@ -4463,7 +4464,7 @@
  ** ordinary table btree.  If the cursor points to an index btree or
  ** is invalid, the result of this routine is undefined.
  */
@@ -318,7 +318,7 @@ diff -ru sqlite-src-3240000/src/btree.c SQLumDash/src/btree.c
    assert( cursorHoldsMutex(pCur) );
    assert( pCur->eState==CURSOR_VALID );
    assert( pCur->curIntKey );
-@@ -4479,7 +4480,7 @@
+@@ -4494,7 +4495,7 @@
  ** valid entry.  In other words, the calling procedure must guarantee
  ** that the cursor has Cursor.eState==CURSOR_VALID.
  */
@@ -327,7 +327,7 @@ diff -ru sqlite-src-3240000/src/btree.c SQLumDash/src/btree.c
    assert( cursorHoldsMutex(pCur) );
    assert( pCur->eState==CURSOR_VALID );
    getCellInfo(pCur);
-@@ -4827,7 +4828,7 @@
+@@ -4842,7 +4843,7 @@
  ** wrong.  An error is returned if "offset+amt" is larger than
  ** the available payload.
  */
@@ -336,7 +336,7 @@ diff -ru sqlite-src-3240000/src/btree.c SQLumDash/src/btree.c
    assert( cursorHoldsMutex(pCur) );
    assert( pCur->eState==CURSOR_VALID );
    assert( pCur->iPage>=0 && pCur->pPage );
-@@ -4923,7 +4924,7 @@
+@@ -4938,7 +4939,7 @@
  ** These routines is used to get quick access to key and data
  ** in the common case where no overflow pages are used.
  */
@@ -345,7 +345,16 @@ diff -ru sqlite-src-3240000/src/btree.c SQLumDash/src/btree.c
    return fetchPayload(pCur, pAmt);
  }
  
-@@ -8864,7 +8865,7 @@
+@@ -5201,7 +5202,7 @@
+ ** sqlite3BtreeNext() is a no-op.
+ */
+ #ifndef SQLITE_OMIT_WINDOWFUNC
+-void sqlite3BtreeSkipNext(BtCursor *pCur){
++void sqlite3BtreeSkipNextOriginal(BtCursor *pCur){
+   /* We believe that the cursor must always be in the valid state when
+   ** this routine is called, but the proof is difficult, so we add an
+   ** ALWaYS() test just in case we are wrong. */
+@@ -8905,7 +8906,7 @@
    *piTable = (int)pgnoRoot;
    return SQLITE_OK;
  }
@@ -354,7 +363,7 @@ diff -ru sqlite-src-3240000/src/btree.c SQLumDash/src/btree.c
    int rc;
    sqlite3BtreeEnter(p);
    rc = btreeCreateTable(p, piTable, flags);
-@@ -9073,7 +9074,7 @@
+@@ -9114,7 +9115,7 @@
  #endif
    return rc;  
  }
@@ -363,7 +372,7 @@ diff -ru sqlite-src-3240000/src/btree.c SQLumDash/src/btree.c
    int rc;
    sqlite3BtreeEnter(p);
    rc = btreeDropTable(p, iTable, piMoved);
-@@ -9132,7 +9133,7 @@
+@@ -9173,7 +9174,7 @@
  ** Write meta-information back into the database.  Meta[0] is
  ** read-only and may not be written.
  */
@@ -372,7 +381,7 @@ diff -ru sqlite-src-3240000/src/btree.c SQLumDash/src/btree.c
    BtShared *pBt = p->pBt;
    unsigned char *pP1;
    int rc;
-@@ -9885,7 +9886,7 @@
+@@ -9940,7 +9941,7 @@
  /*
  ** Return non-zero if a transaction is active.
  */
@@ -381,7 +390,7 @@ diff -ru sqlite-src-3240000/src/btree.c SQLumDash/src/btree.c
    assert( p==0 || sqlite3_mutex_held(p->db->mutex) );
    return (p && (p->inTrans==TRANS_WRITE));
  }
-@@ -9983,7 +9984,7 @@
+@@ -10038,7 +10039,7 @@
  ** lock is a write lock if isWritelock is true or a read lock
  ** if it is false.
  */
@@ -390,7 +399,7 @@ diff -ru sqlite-src-3240000/src/btree.c SQLumDash/src/btree.c
    int rc = SQLITE_OK;
    assert( p->inTrans!=TRANS_NONE );
    if( p->sharable ){
-@@ -10072,7 +10073,7 @@
+@@ -10127,7 +10128,7 @@
  ** "write version" (single byte at byte offset 19) fields in the database
  ** header to iVersion.
  */
@@ -399,7 +408,7 @@ diff -ru sqlite-src-3240000/src/btree.c SQLumDash/src/btree.c
    BtShared *pBt = pBtree->pBt;
    int rc;                         /* Return code */
   
-@@ -10141,3 +10142,7 @@
+@@ -10196,3 +10197,7 @@
    return p->pBt->nRef;
  }
  #endif
@@ -408,9 +417,9 @@ diff -ru sqlite-src-3240000/src/btree.c SQLumDash/src/btree.c
 +#include "rowlock_btree.c"
 +#endif
 \ ファイル末尾に改行がありません
-diff -ru sqlite-src-3240000/src/btree.h SQLumDash/src/btree.h
---- sqlite-src-3240000/src/btree.h	2018-06-05 02:51:20.000000000 +0900
-+++ SQLumDash/src/btree.h	2018-09-14 17:35:49.000000000 +0900
+diff -ru sqlite-src-3250000/src/btree.h SQLumDash3.25.0/src/btree.h
+--- sqlite-src-3250000/src/btree.h	2018-09-15 20:35:52.000000000 +0900
++++ SQLumDash3.25.0/src/btree.h	2018-09-26 12:01:22.000000000 +0900
 @@ -16,6 +16,10 @@
  #ifndef SQLITE_BTREE_H
  #define SQLITE_BTREE_H
@@ -422,9 +431,9 @@ diff -ru sqlite-src-3240000/src/btree.h SQLumDash/src/btree.h
  /* TODO: This definition is just included so other modules compile. It
  ** needs to be revisited.
  */
-diff -ru sqlite-src-3240000/src/btreeInt.h SQLumDash/src/btreeInt.h
---- sqlite-src-3240000/src/btreeInt.h	2018-06-05 02:51:20.000000000 +0900
-+++ SQLumDash/src/btreeInt.h	2018-09-14 17:35:49.000000000 +0900
+diff -ru sqlite-src-3250000/src/btreeInt.h SQLumDash3.25.0/src/btreeInt.h
+--- sqlite-src-3250000/src/btreeInt.h	2018-09-15 20:35:52.000000000 +0900
++++ SQLumDash3.25.0/src/btreeInt.h	2018-09-14 17:35:49.000000000 +0900
 @@ -214,7 +214,9 @@
  **      *     zero or more pages numbers of leaves
  */
@@ -468,10 +477,10 @@ diff -ru sqlite-src-3240000/src/btreeInt.h SQLumDash/src/btreeInt.h
  };
  
  /*
-diff -ru sqlite-src-3240000/src/build.c SQLumDash/src/build.c
---- sqlite-src-3240000/src/build.c	2018-06-05 02:51:20.000000000 +0900
-+++ SQLumDash/src/build.c	2018-09-14 17:35:49.000000000 +0900
-@@ -2625,6 +2625,8 @@
+diff -ru sqlite-src-3250000/src/build.c SQLumDash3.25.0/src/build.c
+--- sqlite-src-3250000/src/build.c	2018-09-15 20:35:52.000000000 +0900
++++ SQLumDash3.25.0/src/build.c	2018-09-26 12:01:22.000000000 +0900
+@@ -2673,6 +2673,8 @@
    }
  #endif
  
@@ -480,7 +489,7 @@ diff -ru sqlite-src-3240000/src/build.c SQLumDash/src/build.c
    /* Generate code to remove the table from the master table
    ** on disk.
    */
-@@ -3569,6 +3571,8 @@
+@@ -3640,6 +3642,8 @@
    }
  #endif
  
@@ -489,9 +498,9 @@ diff -ru sqlite-src-3240000/src/build.c SQLumDash/src/build.c
    /* Generate code to remove the index and from the master table */
    v = sqlite3GetVdbe(pParse);
    if( v ){
-diff -ru sqlite-src-3240000/src/func.c SQLumDash/src/func.c
---- sqlite-src-3240000/src/func.c	2018-06-05 02:51:20.000000000 +0900
-+++ SQLumDash/src/func.c	2018-09-14 17:35:50.000000000 +0900
+diff -ru sqlite-src-3250000/src/func.c SQLumDash3.25.0/src/func.c
+--- sqlite-src-3250000/src/func.c	2018-09-15 20:35:52.000000000 +0900
++++ SQLumDash3.25.0/src/func.c	2018-09-26 12:01:22.000000000 +0900
 @@ -17,6 +17,7 @@
  #include <stdlib.h>
  #include <assert.h>
@@ -500,7 +509,7 @@ diff -ru sqlite-src-3240000/src/func.c SQLumDash/src/func.c
  
  /*
  ** Return the collating function associated with a function.
-@@ -1882,6 +1883,7 @@
+@@ -1989,6 +1990,7 @@
      FUNCTION(coalesce,           1, 0, 0, 0                ),
      FUNCTION(coalesce,           0, 0, 0, 0                ),
      FUNCTION2(coalesce,         -1, 0, 0, noopFunc,  SQLITE_FUNC_COALESCE),
@@ -508,11 +517,11 @@ diff -ru sqlite-src-3240000/src/func.c SQLumDash/src/func.c
    };
  #ifndef SQLITE_OMIT_ALTERTABLE
    sqlite3AlterFunctions();
-SQLumDash/src のみに存在: funcNew.c
-SQLumDash/src のみに存在: funcNew.h
-diff -ru sqlite-src-3240000/src/global.c SQLumDash/src/global.c
---- sqlite-src-3240000/src/global.c	2018-06-05 02:51:20.000000000 +0900
-+++ SQLumDash/src/global.c	2018-09-14 17:35:50.000000000 +0900
+SQLumDash3.25.0/src のみに存在: funcNew.c
+SQLumDash3.25.0/src のみに存在: funcNew.h
+diff -ru sqlite-src-3250000/src/global.c SQLumDash3.25.0/src/global.c
+--- sqlite-src-3250000/src/global.c	2018-09-15 20:35:52.000000000 +0900
++++ SQLumDash3.25.0/src/global.c	2018-09-14 17:35:50.000000000 +0900
 @@ -242,6 +242,10 @@
     0,                         /* bLocaltimeFault */
     0x7ffffffe,                /* iOnceResetThreshold */
@@ -524,9 +533,9 @@ diff -ru sqlite-src-3240000/src/global.c SQLumDash/src/global.c
  };
  
  /*
-diff -ru sqlite-src-3240000/src/main.c SQLumDash/src/main.c
---- sqlite-src-3240000/src/main.c	2018-06-05 02:51:20.000000000 +0900
-+++ SQLumDash/src/main.c	2018-09-14 17:35:50.000000000 +0900
+diff -ru sqlite-src-3250000/src/main.c SQLumDash3.25.0/src/main.c
+--- sqlite-src-3250000/src/main.c	2018-09-15 20:35:52.000000000 +0900
++++ SQLumDash3.25.0/src/main.c	2018-09-26 12:01:22.000000000 +0900
 @@ -641,6 +641,8 @@
        sqlite3GlobalConfig.nStmtSpill = va_arg(ap, int);
        break;
@@ -536,9 +545,9 @@ diff -ru sqlite-src-3240000/src/main.c SQLumDash/src/main.c
  
  #ifdef SQLITE_ENABLE_SORTER_REFERENCES
      case SQLITE_CONFIG_SORTERREF_SIZE: {
-diff -ru sqlite-src-3240000/src/pager.c SQLumDash/src/pager.c
---- sqlite-src-3240000/src/pager.c	2018-06-05 02:51:20.000000000 +0900
-+++ SQLumDash/src/pager.c	2018-09-14 17:35:50.000000000 +0900
+diff -ru sqlite-src-3250000/src/pager.c SQLumDash3.25.0/src/pager.c
+--- sqlite-src-3250000/src/pager.c	2018-09-15 20:35:52.000000000 +0900
++++ SQLumDash3.25.0/src/pager.c	2018-09-26 12:01:22.000000000 +0900
 @@ -848,6 +848,10 @@
  # define pagerBeginReadTransaction(z) SQLITE_OK
  #endif
@@ -559,7 +568,7 @@ diff -ru sqlite-src-3240000/src/pager.c SQLumDash/src/pager.c
    Pager *pPager = p;
  
    /* State must be valid. */
-@@ -3918,7 +3922,7 @@
+@@ -3921,7 +3925,7 @@
  */
  static int pager_wait_on_lock(Pager *pPager, int locktype){
    int rc;                              /* Return code */
@@ -568,7 +577,7 @@ diff -ru sqlite-src-3240000/src/pager.c SQLumDash/src/pager.c
    /* Check that this is either a no-op (because the requested lock is 
    ** already held), or one of the transitions that the busy-handler
    ** may be invoked during, according to the comment above
-@@ -4394,7 +4398,8 @@
+@@ -4397,7 +4401,8 @@
  ** occurs, an IO error code is returned. Or, if the EXCLUSIVE lock cannot
  ** be obtained, SQLITE_BUSY is returned.
  */
@@ -578,25 +587,25 @@ diff -ru sqlite-src-3240000/src/pager.c SQLumDash/src/pager.c
    int rc = SQLITE_OK;                  /* Return code */
  
    /* This function is only called for rollback pagers in WRITER_DBMOD state. */
-SQLumDash/src のみに存在: rowlock.c
-SQLumDash/src のみに存在: rowlock.h
-SQLumDash/src のみに存在: rowlock_btree.c
-SQLumDash/src のみに存在: rowlock_hash.c
-SQLumDash/src のみに存在: rowlock_hash.h
-SQLumDash/src のみに存在: rowlock_ipc.c
-SQLumDash/src のみに存在: rowlock_ipc.h
-SQLumDash/src のみに存在: rowlock_ipc_row.c
-SQLumDash/src のみに存在: rowlock_ipc_row.h
-SQLumDash/src のみに存在: rowlock_ipc_table.c
-SQLumDash/src のみに存在: rowlock_ipc_table.h
-SQLumDash/src のみに存在: rowlock_macro.h
-SQLumDash/src のみに存在: rowlock_pager.c
-SQLumDash/src のみに存在: rowlock_savepoint.c
-SQLumDash/src のみに存在: rowlock_savepoint.h
-diff -ru sqlite-src-3240000/src/sqlite.h.in SQLumDash/src/sqlite.h.in
---- sqlite-src-3240000/src/sqlite.h.in	2018-06-05 02:51:20.000000000 +0900
-+++ SQLumDash/src/sqlite.h.in	2018-09-14 17:35:50.000000000 +0900
-@@ -9142,6 +9142,33 @@
+SQLumDash3.25.0/src のみに存在: rowlock.c
+SQLumDash3.25.0/src のみに存在: rowlock.h
+SQLumDash3.25.0/src のみに存在: rowlock_btree.c
+SQLumDash3.25.0/src のみに存在: rowlock_hash.c
+SQLumDash3.25.0/src のみに存在: rowlock_hash.h
+SQLumDash3.25.0/src のみに存在: rowlock_ipc.c
+SQLumDash3.25.0/src のみに存在: rowlock_ipc.h
+SQLumDash3.25.0/src のみに存在: rowlock_ipc_row.c
+SQLumDash3.25.0/src のみに存在: rowlock_ipc_row.h
+SQLumDash3.25.0/src のみに存在: rowlock_ipc_table.c
+SQLumDash3.25.0/src のみに存在: rowlock_ipc_table.h
+SQLumDash3.25.0/src のみに存在: rowlock_macro.h
+SQLumDash3.25.0/src のみに存在: rowlock_pager.c
+SQLumDash3.25.0/src のみに存在: rowlock_savepoint.c
+SQLumDash3.25.0/src のみに存在: rowlock_savepoint.h
+diff -ru sqlite-src-3250000/src/sqlite.h.in SQLumDash3.25.0/src/sqlite.h.in
+--- sqlite-src-3250000/src/sqlite.h.in	2018-09-15 20:35:52.000000000 +0900
++++ SQLumDash3.25.0/src/sqlite.h.in	2018-09-26 12:01:23.000000000 +0900
+@@ -9281,6 +9281,33 @@
  # undef double
  #endif
  
@@ -630,10 +639,10 @@ diff -ru sqlite-src-3240000/src/sqlite.h.in SQLumDash/src/sqlite.h.in
  #ifdef __cplusplus
  }  /* End of the 'extern "C"' block */
  #endif
-diff -ru sqlite-src-3240000/src/sqliteInt.h SQLumDash/src/sqliteInt.h
---- sqlite-src-3240000/src/sqliteInt.h	2018-06-05 02:51:20.000000000 +0900
-+++ SQLumDash/src/sqliteInt.h	2018-09-14 17:35:50.000000000 +0900
-@@ -3359,6 +3359,10 @@
+diff -ru sqlite-src-3250000/src/sqliteInt.h SQLumDash3.25.0/src/sqliteInt.h
+--- sqlite-src-3250000/src/sqliteInt.h	2018-09-15 20:35:52.000000000 +0900
++++ SQLumDash3.25.0/src/sqliteInt.h	2018-09-26 12:01:23.000000000 +0900
+@@ -3398,6 +3398,10 @@
    int bLocaltimeFault;              /* True to fail localtime() calls */
    int iOnceResetThreshold;          /* When to reset OP_Once counters */
    u32 szSorterRef;                  /* Min size in bytes to use sorter-refs */
@@ -644,10 +653,10 @@ diff -ru sqlite-src-3240000/src/sqliteInt.h SQLumDash/src/sqliteInt.h
  };
  
  /*
-diff -ru sqlite-src-3240000/src/trigger.c SQLumDash/src/trigger.c
---- sqlite-src-3240000/src/trigger.c	2018-06-05 02:51:20.000000000 +0900
-+++ SQLumDash/src/trigger.c	2018-09-14 17:35:50.000000000 +0900
-@@ -587,6 +587,8 @@
+diff -ru sqlite-src-3250000/src/trigger.c SQLumDash3.25.0/src/trigger.c
+--- sqlite-src-3250000/src/trigger.c	2018-09-15 20:35:52.000000000 +0900
++++ SQLumDash3.25.0/src/trigger.c	2018-09-26 12:01:23.000000000 +0900
+@@ -628,6 +628,8 @@
    }
  #endif
  
@@ -656,9 +665,9 @@ diff -ru sqlite-src-3240000/src/trigger.c SQLumDash/src/trigger.c
    /* Generate code to destroy the database record of the trigger.
    */
    assert( pTable!=0 );
-diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
---- sqlite-src-3240000/src/vdbe.c	2018-06-05 02:51:20.000000000 +0900
-+++ SQLumDash/src/vdbe.c	2018-09-14 17:35:50.000000000 +0900
+diff -ru sqlite-src-3250000/src/vdbe.c SQLumDash3.25.0/src/vdbe.c
+--- sqlite-src-3250000/src/vdbe.c	2018-09-15 20:35:52.000000000 +0900
++++ SQLumDash3.25.0/src/vdbe.c	2018-09-26 12:01:23.000000000 +0900
 @@ -20,6 +20,9 @@
  */
  #include "sqliteInt.h"
@@ -669,7 +678,7 @@ diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
  
  /*
  ** Invoke this macro on memory cells just prior to changing the
-@@ -955,7 +958,7 @@
+@@ -979,7 +982,7 @@
  case OP_Halt: {
    VdbeFrame *pFrame;
    int pcx;
@@ -678,7 +687,7 @@ diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
    pcx = (int)(pOp - aOp);
  #ifdef SQLITE_DEBUG
    if( pOp->p2==OE_Abort ){ sqlite3VdbeAssertAbortable(p); }
-@@ -3227,7 +3230,7 @@
+@@ -3260,7 +3263,7 @@
        }
        goto abort_due_to_error;
      }
@@ -687,7 +696,7 @@ diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
      if( pOp->p2 && p->usesStmtJournal 
       && (db->autoCommit==0 || db->nVdbeRead>1) 
      ){
-@@ -3526,6 +3529,7 @@
+@@ -3577,6 +3580,7 @@
    sqlite3BtreeCursorHintFlags(pCur->uc.pCursor,
                                 (pOp->p5 & (OPFLAG_BULKCSR|OPFLAG_SEEKEQ)));
    if( rc ) goto abort_due_to_error;
@@ -695,7 +704,7 @@ diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
    break;
  }
  
-@@ -3909,7 +3913,11 @@
+@@ -3960,7 +3964,11 @@
          if( (oc & 0x0001)==(OP_SeekLT & 0x0001) ) oc++;
        }
      } 
@@ -707,7 +716,7 @@ diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
      pC->movetoTarget = iKey;  /* Used by OP_Delete */
      if( rc!=SQLITE_OK ){
        goto abort_due_to_error;
-@@ -3953,7 +3961,11 @@
+@@ -4004,7 +4012,11 @@
      { int i; for(i=0; i<r.nField; i++) assert( memIsValid(&r.aMem[i]) ); }
  #endif
      r.eqSeen = 0;
@@ -719,7 +728,7 @@ diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
      if( rc!=SQLITE_OK ){
        goto abort_due_to_error;
      }
-@@ -4135,7 +4147,11 @@
+@@ -4240,7 +4252,11 @@
        }
      }
    }
@@ -731,7 +740,7 @@ diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
    if( pFree ) sqlite3DbFreeNN(db, pFree);
    if( rc!=SQLITE_OK ){
      goto abort_due_to_error;
-@@ -4229,7 +4245,11 @@
+@@ -4342,7 +4358,11 @@
    assert( pCrsr!=0 );
    res = 0;
    iKey = pIn3->u.i;
@@ -743,7 +752,7 @@ diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
    assert( rc==SQLITE_OK || res==0 );
    pC->movetoTarget = iKey;  /* Used by OP_Delete */
    pC->nullRow = 0;
-@@ -4325,7 +4345,11 @@
+@@ -4438,7 +4458,11 @@
  #   define MAX_ROWID  (i64)( (((u64)0x7fffffff)<<32) | (u64)0xffffffff )
  #endif
  
@@ -755,7 +764,7 @@ diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
        rc = sqlite3BtreeLast(pC->uc.pCursor, &res);
        if( rc!=SQLITE_OK ){
          goto abort_due_to_error;
-@@ -4341,6 +4365,7 @@
+@@ -4454,6 +4478,7 @@
            v++;   /* IMP: R-29538-34987 */
          }
        }
@@ -763,7 +772,7 @@ diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
      }
  
  #ifndef SQLITE_OMIT_AUTOINCREMENT
-@@ -4384,8 +4409,13 @@
+@@ -4497,8 +4522,13 @@
        do{
          sqlite3_randomness(sizeof(v), &v);
          v &= (MAX_ROWID>>1); v++;  /* Ensure that v is greater than zero */
@@ -777,7 +786,7 @@ diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
              && (res==0)
              && (++cnt<100));
        if( rc ) goto abort_due_to_error;
-@@ -4399,6 +4429,7 @@
+@@ -4512,6 +4542,7 @@
      pC->cacheStatus = CACHE_STALE;
    }
    pOut->u.i = v;
@@ -785,7 +794,7 @@ diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
    break;
  }
  
-@@ -4473,6 +4504,7 @@
+@@ -4586,6 +4617,7 @@
      assert( memIsValid(pKey) );
      REGISTER_TRACE(pOp->p3, pKey);
      x.nKey = pKey->u.i;
@@ -793,7 +802,7 @@ diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
    }else{
      assert( pOp->opcode==OP_InsertInt );
      x.nKey = pOp->p3;
-@@ -4514,9 +4546,15 @@
+@@ -4627,9 +4659,15 @@
      x.nZero = 0;
    }
    x.pKey = 0;
@@ -809,7 +818,7 @@ diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
    pC->deferredMoveto = 0;
    pC->cacheStatus = CACHE_STALE;
  
-@@ -4645,7 +4683,11 @@
+@@ -4758,7 +4796,11 @@
    }
  #endif
  
@@ -821,7 +830,7 @@ diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
    pC->cacheStatus = CACHE_STALE;
    pC->seekResult = 0;
    if( rc ) goto abort_due_to_error;
-@@ -5024,7 +5066,11 @@
+@@ -5144,7 +5186,11 @@
      assert( pC->eCurType==CURTYPE_BTREE );
      pCrsr = pC->uc.pCursor;
      assert( pCrsr );
@@ -830,12 +839,12 @@ diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
 +#else
      rc = sqlite3BtreeFirst(pCrsr, &res);
 +#endif
-     pC->deferredMoveto = 0;
-     pC->cacheStatus = CACHE_STALE;
-   }
-@@ -5139,7 +5185,11 @@
-        || pC->seekOp==OP_SeekLT || pC->seekOp==OP_SeekLE
-        || pC->seekOp==OP_Last );
+ #ifndef SQLITE_OMIT_WINDOWFUNC
+     if( pOp->p5 ) sqlite3BtreeSkipNext(pCrsr);
+ #endif
+@@ -5248,7 +5294,11 @@
+        || pC->seekOp==OP_Last 
+        || pC->seekOp==OP_NullRow);
  
 +#ifndef SQLITE_OMIT_ROWLOCK
 +  rc = sqlite3BtreeAdvanceAll(pC->uc.pCursor, pOp->p3, pOp->p4.xAdvance);
@@ -845,7 +854,7 @@ diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
  next_tail:
    pC->cacheStatus = CACHE_STALE;
    VdbeBranchTaken(rc==SQLITE_OK,2);
-@@ -5216,10 +5266,17 @@
+@@ -5325,10 +5375,17 @@
      x.pKey = pIn2->z;
      x.aMem = aMem + pOp->p3;
      x.nMem = (u16)pOp->p4.i;
@@ -863,7 +872,7 @@ diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
      assert( pC->deferredMoveto==0 );
      pC->cacheStatus = CACHE_STALE;
    }
-@@ -5254,10 +5311,18 @@
+@@ -5363,10 +5420,18 @@
    r.nField = (u16)pOp->p3;
    r.default_rc = 0;
    r.aMem = &aMem[pOp->p2];
@@ -882,7 +891,7 @@ diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
      if( rc ) goto abort_due_to_error;
    }
    assert( pC->deferredMoveto==0 );
-@@ -5482,7 +5547,11 @@
+@@ -5597,7 +5662,11 @@
      iDb = pOp->p3;
      assert( DbMaskTest(p->btreeMask, iDb) );
      iMoved = 0;  /* Not needed.  Only to silence a warning. */
@@ -894,7 +903,7 @@ diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
      pOut->flags = MEM_Int;
      pOut->u.i = iMoved;
      if( rc ) goto abort_due_to_error;
-@@ -5523,9 +5592,15 @@
+@@ -5638,9 +5707,15 @@
    nChange = 0;
    assert( p->readOnly==0 );
    assert( DbMaskTest(p->btreeMask, pOp->p2) );
@@ -910,7 +919,7 @@ diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
    if( pOp->p3 ){
      p->nChange += nChange;
      if( pOp->p3>0 ){
-@@ -6565,7 +6640,11 @@
+@@ -6762,7 +6837,11 @@
      int p1 = pOp->p1; 
      assert( p1>=0 && p1<db->nDb );
      assert( DbMaskTest(p->btreeMask, p1) );
@@ -922,9 +931,9 @@ diff -ru sqlite-src-3240000/src/vdbe.c SQLumDash/src/vdbe.c
      rc = sqlite3BtreeLockTable(db->aDb[p1].pBt, pOp->p2, isWriteLock);
      if( rc ){
        if( (rc&0xFF)==SQLITE_LOCKED ){
-diff -ru sqlite-src-3240000/src/vdbeapi.c SQLumDash/src/vdbeapi.c
---- sqlite-src-3240000/src/vdbeapi.c	2018-06-05 02:51:20.000000000 +0900
-+++ SQLumDash/src/vdbeapi.c	2018-09-14 17:35:50.000000000 +0900
+diff -ru sqlite-src-3250000/src/vdbeapi.c SQLumDash3.25.0/src/vdbeapi.c
+--- sqlite-src-3250000/src/vdbeapi.c	2018-09-15 20:35:52.000000000 +0900
++++ SQLumDash3.25.0/src/vdbeapi.c	2018-09-26 12:01:23.000000000 +0900
 @@ -16,6 +16,8 @@
  #include "sqliteInt.h"
  #include "vdbeInt.h"
@@ -943,9 +952,9 @@ diff -ru sqlite-src-3240000/src/vdbeapi.c SQLumDash/src/vdbeapi.c
    sqlite3 *db;
    int rc;
  
-diff -ru sqlite-src-3240000/src/vdbeaux.c SQLumDash/src/vdbeaux.c
---- sqlite-src-3240000/src/vdbeaux.c	2018-06-05 02:51:20.000000000 +0900
-+++ SQLumDash/src/vdbeaux.c	2018-09-14 17:35:50.000000000 +0900
+diff -ru sqlite-src-3250000/src/vdbeaux.c SQLumDash3.25.0/src/vdbeaux.c
+--- sqlite-src-3250000/src/vdbeaux.c	2018-09-15 20:35:52.000000000 +0900
++++ SQLumDash3.25.0/src/vdbeaux.c	2018-09-26 12:01:23.000000000 +0900
 @@ -14,6 +14,9 @@
  */
  #include "sqliteInt.h"
@@ -956,7 +965,7 @@ diff -ru sqlite-src-3240000/src/vdbeaux.c SQLumDash/src/vdbeaux.c
  
  /*
  ** Create a new virtual database engine.
-@@ -2821,6 +2824,11 @@
+@@ -2827,6 +2830,11 @@
            }
            rc = SQLITE_CONSTRAINT_FOREIGNKEY;
          }else{ 
@@ -968,7 +977,7 @@ diff -ru sqlite-src-3240000/src/vdbeaux.c SQLumDash/src/vdbeaux.c
            /* The auto-commit flag is true, the vdbe program was successful 
            ** or hit an 'OR FAIL' constraint and there are no deferred foreign
            ** key constraints to hold up the transaction. This means a commit 
-@@ -2895,6 +2903,10 @@
+@@ -2901,6 +2909,10 @@
      sqlite3VdbeLeave(p);
    }
  
@@ -979,7 +988,7 @@ diff -ru sqlite-src-3240000/src/vdbeaux.c SQLumDash/src/vdbeaux.c
    /* We have successfully halted and closed the VM.  Record this fact. */
    if( p->pc>=0 ){
      db->nVdbeActive--;
-@@ -3198,7 +3210,11 @@
+@@ -3204,7 +3216,11 @@
    assert( p->deferredMoveto );
    assert( p->isTable );
    assert( p->eCurType==CURTYPE_BTREE );
@@ -991,9 +1000,9 @@ diff -ru sqlite-src-3240000/src/vdbeaux.c SQLumDash/src/vdbeaux.c
    if( rc ) return rc;
    if( res!=0 ) return SQLITE_CORRUPT_BKPT;
  #ifdef SQLITE_TEST
-diff -ru sqlite-src-3240000/tool/mksqlite3c-noext.tcl SQLumDash/tool/mksqlite3c-noext.tcl
---- sqlite-src-3240000/tool/mksqlite3c-noext.tcl	2018-06-05 02:51:20.000000000 +0900
-+++ SQLumDash/tool/mksqlite3c-noext.tcl	2018-09-14 17:35:55.000000000 +0900
+diff -ru sqlite-src-3250000/tool/mksqlite3c-noext.tcl SQLumDash3.25.0/tool/mksqlite3c-noext.tcl
+--- sqlite-src-3250000/tool/mksqlite3c-noext.tcl	2018-09-15 20:35:52.000000000 +0900
++++ SQLumDash3.25.0/tool/mksqlite3c-noext.tcl	2018-09-26 12:01:23.000000000 +0900
 @@ -119,6 +119,12 @@
     vxworks.h
     wal.h
@@ -1015,9 +1024,9 @@ diff -ru sqlite-src-3240000/tool/mksqlite3c-noext.tcl SQLumDash/tool/mksqlite3c-
     fkey.c
     insert.c
     legacy.c
-@@ -352,6 +359,15 @@
-    whereexpr.c
+@@ -353,6 +360,15 @@
     where.c
+    window.c
  
 +   rowlock.c
 +   rowlock_btree.c
@@ -1031,10 +1040,10 @@ diff -ru sqlite-src-3240000/tool/mksqlite3c-noext.tcl SQLumDash/tool/mksqlite3c-
     parse.c
  
     tokenize.c
-diff -ru sqlite-src-3240000/tool/mksqlite3c.tcl SQLumDash/tool/mksqlite3c.tcl
---- sqlite-src-3240000/tool/mksqlite3c.tcl	2018-06-05 02:51:20.000000000 +0900
-+++ SQLumDash/tool/mksqlite3c.tcl	2018-09-14 17:35:55.000000000 +0900
-@@ -126,6 +126,12 @@
+diff -ru sqlite-src-3250000/tool/mksqlite3c.tcl SQLumDash3.25.0/tool/mksqlite3c.tcl
+--- sqlite-src-3250000/tool/mksqlite3c.tcl	2018-09-15 20:35:52.000000000 +0900
++++ SQLumDash3.25.0/tool/mksqlite3c.tcl	2018-09-26 12:01:23.000000000 +0900
+@@ -127,6 +127,12 @@
     vxworks.h
     wal.h
     whereInt.h
@@ -1047,7 +1056,7 @@ diff -ru sqlite-src-3240000/tool/mksqlite3c.tcl SQLumDash/tool/mksqlite3c.tcl
  } {
    set available_hdr($hdr) 1
  }
-@@ -353,6 +359,7 @@
+@@ -354,6 +360,7 @@
     callback.c
     delete.c
     func.c
@@ -1055,9 +1064,9 @@ diff -ru sqlite-src-3240000/tool/mksqlite3c.tcl SQLumDash/tool/mksqlite3c.tcl
     fkey.c
     insert.c
     legacy.c
-@@ -370,6 +377,15 @@
-    whereexpr.c
+@@ -372,6 +379,15 @@
     where.c
+    window.c
  
 +   rowlock.c
 +   rowlock_btree.c
@@ -1071,5 +1080,5 @@ diff -ru sqlite-src-3240000/tool/mksqlite3c.tcl SQLumDash/tool/mksqlite3c.tcl
     parse.c
  
     tokenize.c
-SQLumDash/tool のみに存在: rowlock_cleaner.c
-SQLumDash/tool/win のみに存在: uniq.bat
+SQLumDash3.25.0/tool のみに存在: rowlock_cleaner.c
+SQLumDash3.25.0/tool/win のみに存在: uniq.bat

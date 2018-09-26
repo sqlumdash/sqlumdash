@@ -120,6 +120,25 @@ void varianceStep(sqlite3_context *context, int argc, sqlite3_value **argv){
   }
 }
 
+#ifndef SQLITE_OMIT_WINDOWFUNC
+void varianceInverse(sqlite3_context *context, int argc, sqlite3_value **argv){
+  VarCtx *p;
+  int type;
+  assert( argc==1 );
+  UNUSED_PARAMETER(argc);
+  p = (VarCtx*)sqlite3_aggregate_context(context, sizeof(*p));
+  type = sqlite3_value_numeric_type(argv[0]);
+  if( p && type!=SQLITE_NULL ){
+    double v = sqlite3_value_double(argv[0]);
+    p->cnt--;
+    p->sum -= v;
+    p->sqsum -= v * v;
+  }
+}
+#else
+# define varianceInverse 0
+#endif /* SQLITE_OMIT_WINDOWFUNC */
+
 void varianceFinalize(sqlite3_context *context){
   VarCtx *p;
   p = (VarCtx*)sqlite3_aggregate_context(context, 0);
@@ -134,6 +153,14 @@ void variancePStep(sqlite3_context *context, int argc, sqlite3_value **argv){
   varianceStep(context, argc, argv);
 }
 
+#ifndef SQLITE_OMIT_WINDOWFUNC
+void variancePInverse(sqlite3_context *context, int argc, sqlite3_value **argv){
+  varianceInverse(context, argc, argv);
+}
+#else
+# define variancePInverse 0
+#endif /* SQLITE_OMIT_WINDOWFUNC */
+
 void variancePFinalize(sqlite3_context *context){
   VarCtx *p;
   p = (VarCtx*)sqlite3_aggregate_context(context, 0);
@@ -146,6 +173,14 @@ void variancePFinalize(sqlite3_context *context){
 void stddevStep(sqlite3_context *context, int argc, sqlite3_value **argv){
   varianceStep(context, argc, argv);
 }
+
+#ifndef SQLITE_OMIT_WINDOWFUNC
+void stddevInverse(sqlite3_context *context, int argc, sqlite3_value **argv){
+  varianceInverse(context, argc, argv);
+}
+#else
+# define stddevInverse 0
+#endif /* SQLITE_OMIT_WINDOWFUNC */
 
 void stddevFinalize(sqlite3_context *context){
   VarCtx *p;
@@ -161,6 +196,14 @@ void stddevFinalize(sqlite3_context *context){
 void stddevPStep(sqlite3_context *context, int argc, sqlite3_value **argv){
   varianceStep(context, argc, argv);
 }
+
+#ifndef SQLITE_OMIT_WINDOWFUNC
+void stddevPInverse(sqlite3_context *context, int argc, sqlite3_value **argv){
+  varianceInverse(context, argc, argv);
+}
+#else
+# define stddevPInverse 0
+#endif /* SQLITE_OMIT_WINDOWFUNC */
 
 void stddevPFinalize(sqlite3_context *context){
   VarCtx *p;

@@ -238,7 +238,7 @@ int sqlite3TransBtreeBeginTrans(Btree *p, int wrflag){
     return SQLITE_OK;
   }
 
-  return sqlite3BtreeBeginTransOriginal(pBtreeTrans, wrflag);
+  return sqlite3BtreeBeginTransOriginal(pBtreeTrans, wrflag, 0);
 }
 
 /* Add new entry into a root page mapping. */
@@ -558,7 +558,7 @@ int sqlite3BtreeCursorAll(Btree *p, int iTable, int wrFlag,
   int rc;
 
   if( p->sharable && iTable==1 && wrFlag>0 && !sqlite3BtreeIsInTransOriginal(p) ){
-    rc = sqlite3BtreeBeginTransOriginal(p, 1);
+    rc = sqlite3BtreeBeginTransOriginal(p, 1, 0);
     if( rc ) return rc;
   }
 
@@ -1003,6 +1003,19 @@ int sqlite3BtreeAdvanceAll(BtCursor *pCur, int flags, int(*xAdvance)(BtCursor*, 
   }
 }
 
+#ifndef SQLITE_OMIT_WINDOWFUNC
+void sqlite3BtreeSkipNextAll(BtCursor *pCur){
+  BtCursorTrans *pCurTrans = &pCur->btCurTrans;
+  BtCursor *pCurIns = pCurTrans->pCurIns;
+
+  sqlite3BtreeSkipNextOriginal(pCur);
+  if( transBtreeCursorIsUsed(pCur) ){
+    sqlite3BtreeSkipNextOriginal(pCurIns);
+    return;
+  }
+}
+#endif /* SQLITE_OMIT_WINDOWFUNC */
+
 /* Compare key specified by an argument with key pointed by cursor. */
 static int btreeKeyCompareOfCursor(UnpackedRecord *pIdxKey, i64 intKey, BtCursor *pCur, i64 *pRes){
   if( !pIdxKey ){
@@ -1328,7 +1341,7 @@ int sqlite3BtreeUpdateMetaWithTransOpen(Btree *p, int idx, u32 iMeta){
 
   /* Begin write transaction for shared btree. */
   if( !sqlite3BtreeIsInTransOriginal(p) ){
-    rc = sqlite3BtreeBeginTransOriginal(p, 1);
+    rc = sqlite3BtreeBeginTransOriginal(p, 1, 0);
     if( rc ) return rc;
   }
 
@@ -1387,7 +1400,7 @@ int sqlite3BtreeSetVersionWithTransOpen(Btree *pBtree, int iVersion){
 
   /* Begin write transaction for shared btree. */
   if( !sqlite3BtreeIsInTransOriginal(pBtree) ){
-    rc = sqlite3BtreeBeginTransOriginal(pBtree, 2);
+    rc = sqlite3BtreeBeginTransOriginal(pBtree, 2, 0);
     if( rc ) return rc;
   }
 
@@ -1556,20 +1569,20 @@ int sqlite3BtreeCachedRowidSetByOpenCursor(BtCursor *pCur){
 ** Data insertion and deletion are operated for transaction btree. So we start only
 ** transaction btree's transaction.
 */
-int sqlite3BtreeBeginTransAll(Btree *p, int wrflag){
+int sqlite3BtreeBeginTransAll(Btree *p, int wrflag, int *pSchemaVersion){
   int rc = SQLITE_OK;
 
   if( p->sharable ){
-    rc = sqlite3BtreeBeginTransOriginal(p, 0);
+    rc = sqlite3BtreeBeginTransOriginal(p, 0, pSchemaVersion);
   }else{
-    rc = sqlite3BtreeBeginTransOriginal(p, wrflag);
+    rc = sqlite3BtreeBeginTransOriginal(p, wrflag, pSchemaVersion);
   }
   if( rc ) return rc;
 
   if( transBtreeIsUsed(p) ){
     BtreeTrans *pBtTrans = &p->btTrans;
 
-    rc = sqlite3BtreeBeginTransOriginal(pBtTrans->pBtree, wrflag);
+    rc = sqlite3BtreeBeginTransOriginal(pBtTrans->pBtree, wrflag, 0);
     if( rc ) return rc;
   }
 
@@ -1602,7 +1615,7 @@ int sqlite3BtreeBeginTransForCommit(sqlite3 *db){
     if( pBt && transBtreeIsUsed(pBt) && 
         sqlite3BtreeIsInTransOriginal(pBt->btTrans.pBtree) && 
         !sqlite3BtreeIsInTransOriginal(pBt) ){
-      rc = sqlite3BtreeBeginTransOriginal(pBt, 1);
+      rc = sqlite3BtreeBeginTransOriginal(pBt, 1, 0);
     }
   }
   return rc;
@@ -1647,7 +1660,7 @@ int sqlite3BtreeCreateTableWithTransOpen(Btree *p, int *piTable, int flags){
   int rc = SQLITE_OK;
 
   if( !sqlite3BtreeIsInTransOriginal(p) ){
-    rc = sqlite3BtreeBeginTransOriginal(p, 1);
+    rc = sqlite3BtreeBeginTransOriginal(p, 1, 0);
     if( rc ) return rc;
   }
 
@@ -1949,7 +1962,7 @@ int sqlite3TransBtreeCommit(Btree *p){
   /* Begin write transaction for shared btree if only transaction btree is in transaction. */
   if( sqlite3BtreeIsInTransOriginal(pBtTrans->pBtree) && 
       !sqlite3BtreeIsInTransOriginal(p) ){
-    rc = sqlite3BtreeBeginTransOriginal(p, 1);
+    rc = sqlite3BtreeBeginTransOriginal(p, 1, 0);
     if( rc ){
       sqlite3_free(pCur);
       return rc;
