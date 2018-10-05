@@ -495,6 +495,8 @@ void sqlite3rowlockIpcCachedRowidDropTable(IpcHandle *pHandle, int iTable){
   TableMetaData *pMeta = (TableMetaData*)pHandle->pTableLock;
   CachedRowid *pCachedRowid = CachedRowidPointer(pHandle);
   u32 i;
+  u32 iDel = pMeta->nElement;
+  u32 iMove;
 
   rowlockIpcMutexLock(IpcTableLockMutex());
 
@@ -502,11 +504,28 @@ void sqlite3rowlockIpcCachedRowidDropTable(IpcHandle *pHandle, int iTable){
     if( pCachedRowid[i].iTable==iTable ){
       pCachedRowid[i].iTable = 0;
       pCachedRowid[i].rowid = 0;
+      iDel = i;
       break;
     }
-    if( pCachedRowid[i].iTable==0 ) break;
+    if( pCachedRowid[i].iTable==0 ) goto cached_rowid_drop_table_end;
   }
 
+  /* Search the last element. */
+  iMove = iDel;
+  for( i=iDel+1; i<pMeta->nElement; i++ ){
+    if( pCachedRowid[i].iTable==0 ){
+      iMove = i - 1;
+      break;
+    }
+  }
+
+  /* Move the last element into deleted position. */
+  pCachedRowid[iDel].iTable = pCachedRowid[iMove].iTable;
+  pCachedRowid[iDel].rowid = pCachedRowid[iMove].rowid;
+  pCachedRowid[iMove].iTable = 0;
+  pCachedRowid[iMove].rowid = 0;
+
+cached_rowid_drop_table_end:
   rowlockIpcMutexUnlock(IpcTableLockMutex());
 }
 
