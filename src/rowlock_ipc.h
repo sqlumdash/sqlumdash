@@ -67,17 +67,19 @@ void rowlockIpcDelete(void *pMap, u8 iClass, u64 idxStart, u64 idxDel, u64 idxEn
 int sqlite3rowlockIpcInit(IpcHandle *pHandle, u64 nByteRow, u64 nByteTable, const void *owner);
 void sqlite3rowlockIpcFinish(IpcHandle *pHandle);
 int sqlite3rowlockIpcLockRecord(IpcHandle *pHandle, int iTable, i64 rowid);
+int sqlite3rowlockIpcLockRecordQuery(IpcHandle *pHandle, int iTable, i64 rowid);
 void sqlite3rowlockIpcUnlockRecord(IpcHandle *pHandle, int iTable, i64 rowid);
 void sqlite3rowlockIpcUnlockRecordProc(IpcHandle *pHandle);
 void sqlite3rowlockIpcUnlockRecordAll(void);
 
 /* Mode for sqlite3rowlockIpcUnlockTableCore() */
 #define MODE_LOCK_NORMAL 0
-#define MODE_LOCK_COMMIT  1
-#define MODE_LOCK_ROLLBACK  2
+#define MODE_LOCK_COMMIT 1
+#define MODE_LOCK_FORCE  2
 
-int sqlite3rowlockIpcLockTable(IpcHandle *pHandle, int iTable, u8 eLock, int mode);
+int sqlite3rowlockIpcLockTable(IpcHandle *pHandle, int iTable, u8 eLock, int mode, u8 *prevLock);
 void sqlite3rowlockIpcUnlockTablesStmtProc(IpcHandle *pHandle);
+int sqlite3rowlockIpcTableDeletable(IpcHandle *pHandle, int iTable);
 u8 sqlite3rowlockIpcLockTableQuery(IpcHandle *pHandle, int iTable);
 void sqlite3rowlockIpcUnlockTable(IpcHandle *pHandle, int iTable);
 void sqlite3rowlockIpcUnlockTablesProc(IpcHandle *pHandle);

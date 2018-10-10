@@ -169,7 +169,7 @@ static void rowlockIpcTableValueSet(TableElement *pElement, u64 idx, u64 hash, P
 **   MODE_LOCK_COMMIT   : Get EXCLSV_LOCK and memorize a previous lock level.
 **   MODE_LOCK_ROLLBACK : Revert to previous lock level.
 */
-int sqlite3rowlockIpcLockTable(IpcHandle *pHandle, int iTable, u8 eLock, int mode){
+int sqlite3rowlockIpcLockTable(IpcHandle *pHandle, int iTable, u8 eLock, int mode, u8 *prevLock){
   int rc = SQLITE_OK;
   IpcClass *xClass = &ipcClasses[IPC_CLASS_TABLE];
   void *pMap = pHandle->pTableLock;
@@ -196,8 +196,8 @@ int sqlite3rowlockIpcLockTable(IpcHandle *pHandle, int iTable, u8 eLock, int mod
     if( pElem->iTable==iTable ){
       if( pElem->pid == pid && pElem->owner == pHandle->owner ){
         /* Owner is myself. */
-        if( mode==MODE_LOCK_ROLLBACK ){
-          pElement[idx].eLock = pElement[idx].eLockPrev;
+        if( mode==MODE_LOCK_FORCE ){
+          pElement[idx].eLock = eLock;
           goto lock_table_end;
         }
         if( pElem->eLock>=eLock ) goto lock_table_end;
@@ -215,12 +215,14 @@ int sqlite3rowlockIpcLockTable(IpcHandle *pHandle, int iTable, u8 eLock, int mod
           ** We cannot get a lock if someone has an exclusive lock. In addition,
           ** In case if MODE_LOCK_NORMAL,
           **   We cannot get an exclusive lock if someone has a write lock.
+          **   We cannot get an write lock for delete all if someone has already that lock.
           ** In case if MODE_LOCK_COMMIT,
           **   We try to get exclusive lock. We can get exclusive lock even if someone has
           **   read lock and write lock. But someone must has been finished a query processing.
           */
           if( pElem->eLock==EXCLSV_LOCK ||
-              (mode==MODE_LOCK_NORMAL && (pElem->eLock==WRITE_LOCK && eLock==EXCLSV_LOCK)) ||
+              (mode==MODE_LOCK_NORMAL && pElem->eLock>=WRITEEX_LOCK && eLock==WRITEEX_LOCK) ||
+              (mode==MODE_LOCK_NORMAL && pElem->eLock>=WRITE_LOCK && eLock==EXCLSV_LOCK) ||
               (mode==MODE_LOCK_COMMIT && pElem->inUse==1) ){
             rc = SQLITE_LOCKED;
             goto lock_table_end;
@@ -250,7 +252,7 @@ int sqlite3rowlockIpcLockTable(IpcHandle *pHandle, int iTable, u8 eLock, int mod
   }
 
   /* If it reaches here, I can lock it. */
-  if( mode==MODE_LOCK_COMMIT ) pElement[iidx].eLockPrev = pElement[iidx].eLock;
+  if( prevLock ) *prevLock = pElement[iidx].eLock;
   rowlockIpcTableValueSet(pElement, iidx, hash, pid, iTable, pHandle->owner, eLock);
   pMeta->count++;
 
@@ -259,7 +261,53 @@ lock_table_end:
   return rc;
 }
 
-/* Return a obtaining lock type.  */
+/*
+** Return SQLITE_OK if I can delete records in shared table.
+** If someone have WRITEEX_LOCK or EXCLSV_LOCK for the table,
+** I cannot do that.
+*/
+int sqlite3rowlockIpcTableDeletable(IpcHandle *pHandle, int iTable){
+  int rc = SQLITE_OK;
+  IpcClass *xClass = &ipcClasses[IPC_CLASS_TABLE];
+  void *pMap = pHandle->pTableLock;
+  TableMetaData *pMeta = (TableMetaData*)pMap;
+  TableElement *pElement = TableLockPointer(pHandle);
+  u64 hash = xClass->xCalcHash(pMap, iTable);
+  PID pid = rowlockGetPid();
+  TableElement tablelockTarget = {0};
+  TableElement *pElem;
+  u64 idx = hash;
+  u64 iidx = 0;
+  int found = 0;
+
+  assert( iTable!=0 && iTable!=MASTER_ROOT );
+
+  rowlockIpcMutexLock(IpcTableLockMutex());
+
+  /* Find the first element having same iTable. */
+  pElem = (TableElement*)xClass->xElemGet(pMap, idx);
+  /* Check until element is not valid. */
+  while( xClass->xElemIsValid(pElem) ){
+    if( pElem->iTable==iTable &&
+        (pElem->pid!=pid || pElem->owner!=pHandle->owner) && /* Owner is other user */
+        (pElem->eLock==EXCLSV_LOCK || pElem->eLock==WRITEEX_LOCK) ){
+      rc = SQLITE_LOCKED;
+      break;
+    }
+
+    /* Goto the next element. */
+    idx = xClass->xIndexNext(pMap, idx);
+    /* Break if all entries were checked. */
+    if( idx == hash ) break;
+
+    pElem = (TableElement*)xClass->xElemGet(pMap, idx);
+  }
+
+  rowlockIpcMutexUnlock(IpcTableLockMutex());
+  return rc;
+}
+
+/* Return a obtaining lock type. */
 u8 sqlite3rowlockIpcLockTableQuery(IpcHandle *pHandle, int iTable){
   int rc = SQLITE_OK;
   IpcClass *xClass = &ipcClasses[IPC_CLASS_TABLE];
@@ -494,9 +542,9 @@ i64 sqlite3rowlockIpcCachedRowidGet(IpcHandle *pHandle, int iTable){
 void sqlite3rowlockIpcCachedRowidDropTable(IpcHandle *pHandle, int iTable){
   TableMetaData *pMeta = (TableMetaData*)pHandle->pTableLock;
   CachedRowid *pCachedRowid = CachedRowidPointer(pHandle);
-  u32 i;
-  u32 iDel = pMeta->nElement;
-  u32 iMove;
+  u64 i;
+  u64 iDel = pMeta->nElement;
+  u64 iMove;
 
   rowlockIpcMutexLock(IpcTableLockMutex());
 

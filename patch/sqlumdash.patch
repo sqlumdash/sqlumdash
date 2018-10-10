@@ -1,6 +1,6 @@
 diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
 --- sqlite-src-3250000/Makefile.msc	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/Makefile.msc	2018-09-26 12:01:22.000000000 +0900
++++ SQLumDash3.25.0/Makefile.msc	2018-10-05 10:07:07.000000000 +0900
 @@ -950,8 +950,8 @@
  
  # Should the database engine be compiled threadsafe
@@ -433,7 +433,7 @@ diff -ru sqlite-src-3250000/src/btree.h SQLumDash3.25.0/src/btree.h
  */
 diff -ru sqlite-src-3250000/src/btreeInt.h SQLumDash3.25.0/src/btreeInt.h
 --- sqlite-src-3250000/src/btreeInt.h	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/src/btreeInt.h	2018-09-14 17:35:49.000000000 +0900
++++ SQLumDash3.25.0/src/btreeInt.h	2018-10-10 09:14:57.000000000 +0900
 @@ -214,7 +214,9 @@
  **      *     zero or more pages numbers of leaves
  */
@@ -445,17 +445,18 @@ diff -ru sqlite-src-3250000/src/btreeInt.h SQLumDash3.25.0/src/btreeInt.h
  
  /* The following value is the maximum cell size assuming a maximum page
  ** size give above.
-@@ -319,6 +321,9 @@
+@@ -319,6 +321,10 @@
  /* Candidate values for BtLock.eLock */
  #define READ_LOCK     1
  #define WRITE_LOCK    2
 +#ifndef SQLITE_OMIT_ROWLOCK
-+#define EXCLSV_LOCK   3
++#define WRITEEX_LOCK  3
++#define EXCLSV_LOCK   4
 +#endif
  
  /* A Btree handle
  **
-@@ -356,6 +361,9 @@
+@@ -356,6 +362,9 @@
  #ifndef SQLITE_OMIT_SHARED_CACHE
    BtLock lock;       /* Object used to lock page 1 */
  #endif
@@ -465,7 +466,7 @@ diff -ru sqlite-src-3250000/src/btreeInt.h SQLumDash3.25.0/src/btreeInt.h
  };
  
  /*
-@@ -524,6 +532,11 @@
+@@ -524,6 +533,11 @@
    struct KeyInfo *pKeyInfo;            /* Arg passed to comparison function */
    MemPage *pPage;                        /* Current page */
    MemPage *apPage[BTCURSOR_MAX_DEPTH-1]; /* Stack of parents of current page */
@@ -604,8 +605,8 @@ SQLumDash3.25.0/src のみに存在: rowlock_savepoint.c
 SQLumDash3.25.0/src のみに存在: rowlock_savepoint.h
 diff -ru sqlite-src-3250000/src/sqlite.h.in SQLumDash3.25.0/src/sqlite.h.in
 --- sqlite-src-3250000/src/sqlite.h.in	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/src/sqlite.h.in	2018-09-26 12:01:23.000000000 +0900
-@@ -9281,6 +9281,33 @@
++++ SQLumDash3.25.0/src/sqlite.h.in	2018-10-10 09:14:57.000000000 +0900
+@@ -9281,6 +9281,35 @@
  # undef double
  #endif
  
@@ -623,7 +624,7 @@ diff -ru sqlite-src-3250000/src/sqlite.h.in SQLumDash3.25.0/src/sqlite.h.in
 +int sqlite3_rowlock_ipc_lock_record(IpcHandle *pHandle, int iTable, sqlite3_int64 rowid);
 +void sqlite3_rowlock_ipc_unlock_record(IpcHandle *pHandle, int iTable, sqlite3_int64 rowid);
 +void sqlite3_rowlock_ipc_unlock_record_proc(IpcHandle *pHandle);
-+int sqlite3_rowlock_ipc_lock_table(IpcHandle *pHandle, int iTable, unsigned char eLock);
++int sqlite3_rowlock_ipc_lock_table(IpcHandle *pHandle, int iTable, unsigned char eLock, unsigned char *prevLock);
 +unsigned char sqlite3_rowlock_ipc_lock_table_query(IpcHandle *pHandle, int iTable);
 +void sqlite3_rowlock_ipc_unlock_table(IpcHandle *pHandle, int iTable);
 +void sqlite3_rowlock_ipc_register_hash_func(int iClass, sqlite3_uint64(*xFunc)(void *pMap, ...));
@@ -633,8 +634,10 @@ diff -ru sqlite-src-3250000/src/sqlite.h.in SQLumDash3.25.0/src/sqlite.h.in
 +int sqlite3_rowlock_savepoint_create(RowLockSavepoint *pLockSavepoint, int iSavepoint);
 +void sqlite3_rowlock_savepoint_close(RowLockSavepoint *pLockSavepoint, int op, int iSavepoint, IpcHandle *pHandle, void *pRootPages);
 +int sqlite3_rowlock_history_add_record(RowLockSavepoint *pLockSavepoint, int iTable, sqlite3_int64 rowid);
-+int sqlite3_rowlock_history_add_table(RowLockSavepoint *pLockSavepoint, int iTable);
++int sqlite3_rowlock_history_add_new_table(RowLockSavepoint *pLockSavepoint, int iTable);
++int sqlite3_rowlock_history_add_table_lock(RowLockSavepoint *pLockSavepoint, int iTable, u8 prevLock);
 +void sqlite3_rowlock_register_unlockRecord_func(void(*xFunc)(IpcHandle*,int,sqlite3_int64));
++void sqlite3_rowlock_register_lockTable_func(int(*xFunc)(IpcHandle*,int,unsigned char));
 +void sqlite3_rowlock_register_rootPageDel_func(void*(*xFunc)(void*,sqlite3_int64,void*));
  #ifdef __cplusplus
  }  /* End of the 'extern "C"' block */

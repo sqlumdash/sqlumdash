@@ -214,6 +214,27 @@ lock_record_end:
   return rc;
 }
 
+/* Return a obtaining lock type. */
+int sqlite3rowlockIpcLockRecordQuery(IpcHandle *pHandle, int iTable, i64 rowid){
+  int rc = SQLITE_OK;
+  IpcClass *xClass = &ipcClasses[IPC_CLASS_ROW];
+  void *pMap = pHandle->pRecordLock;
+  u64 hash = xClass->xCalcHash(pMap, iTable, rowid);
+  RowElement rowlockTarget = {0};
+  u64 idx;
+
+  assert( iTable!=0 );
+
+  rowlockTarget.iTable = iTable;
+  rowlockTarget.rowid = rowid;
+
+  rowlockIpcMutexLock(IpcRowLockMutex());
+  rc = rowlockIpcSearch(pHandle->pRecordLock, IPC_CLASS_ROW, &rowlockTarget, hash, &idx);
+  rowlockIpcMutexUnlock(IpcRowLockMutex());
+
+  return rc;
+}
+
 void sqlite3rowlockIpcUnlockRecord(IpcHandle *pHandle, int iTable, i64 rowid){
   int rc = SQLITE_OK;
   IpcClass *xClass = &ipcClasses[IPC_CLASS_ROW];

@@ -64,8 +64,8 @@ void sqlite3_rowlock_ipc_unlock_record_proc(IpcHandle *pHandle){
   sqlite3rowlockIpcUnlockRecordProc(pHandle);
 }
 
-int sqlite3_rowlock_ipc_lock_table(IpcHandle *pHandle, int iTable, unsigned char eLock){
-  return sqlite3rowlockIpcLockTable(pHandle, iTable, eLock, MODE_LOCK_NORMAL);
+int sqlite3_rowlock_ipc_lock_table(IpcHandle *pHandle, int iTable, unsigned char eLock, unsigned char *prevLock){
+  return sqlite3rowlockIpcLockTable(pHandle, iTable, eLock, MODE_LOCK_NORMAL, prevLock);
 }
 
 unsigned char sqlite3_rowlock_ipc_lock_table_query(IpcHandle *pHandle, int iTable){

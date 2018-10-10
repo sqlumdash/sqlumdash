@@ -14,12 +14,14 @@
 
 typedef enum HistoryType {
   RLH_REOCRD,
-  RLH_TABLE
+  RLH_NEW_TABLE,
+  RLH_TABLE_LOCK
 } HistoryType;
 
 typedef struct RowLockHistory {
   i64 rowid;
   int iTable;
+  u8 prevLock;
   HistoryType type;
 } RowLockHistory;
 
@@ -41,7 +43,8 @@ typedef struct RowLockSavepoint {
 int sqlite3rowlockSavepointInit(RowLockSavepoint *pLockSavepoint);
 void sqlite3rowlockSavepointFinish(RowLockSavepoint *pLockSavepoint);
 int sqlite3rowlockHistoryAddRecord(RowLockSavepoint *pLockSavepoint, int iTable, i64 rowid);
-int sqlite3rowlockHistoryAddTable(RowLockSavepoint *pLockSavepoint, int iTable);
+int sqlite3rowlockHistoryAddNewTable(RowLockSavepoint *pLockSavepoint, int iTable);
+int sqlite3rowlockHistoryAddTableLock(RowLockSavepoint *pLockSavepoint, int iTable, u8 prevLock);
 
 #endif /* SQLITE_ROWLOCK_SAVEPOINT_H */
 #endif /* SQLITE_OMIT_ROWLOCK */

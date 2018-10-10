@@ -14,6 +14,7 @@
 #include <signal.h>
 
 static u8 cachedRowidFlagGet(BtCursor *pCur);
+static int sqlite3BtreeLockTableForRowLock(Btree *p, int iTab, u8 isWriteLock);
 
 /* Launched when a signal is catched. */
 void rowlockSignalHandler(int signal){
@@ -327,7 +328,7 @@ int sqlite3TransBtreeCreateTable(Btree *p, int iTable, struct KeyInfo *pKeyInfo,
     goto trans_btree_create_table_failed;
   }
 
-  rc = sqlite3rowlockHistoryAddTable(&pBtTrans->lockSavepoint, iTable);
+  rc = sqlite3rowlockHistoryAddNewTable(&pBtTrans->lockSavepoint, iTable);
   if( rc ) goto trans_btree_create_table_failed;
 
   if( ppRootPage ){
@@ -422,6 +423,114 @@ static int btreeCountEntry(Btree *p, int iTable, i64 *pnEntry){
 }
 
 /*
+** Convert a btree pointer into the iDb index that indicates
+** which database file in db->aDb[] the btree refers to.
+** Refer sqlite3SchemaToIndex() to understand the logic.
+*/
+static int rowlockBtreeToIndex(sqlite3 *db, Btree *p){
+  int i = -1000000;
+
+  assert( sqlite3_mutex_held(db->mutex) );
+  assert( p );
+  for(i=0; 1; i++){
+    assert( i<db->nDb );
+    if( db->aDb[i].pBt==p ){
+      break;
+    }
+  }
+  assert( i>=0 && i<db->nDb );
+  return i;
+}
+
+/* Judge if it is table or index. */
+static u8 rowlockIsIndex(Btree *p, int rootPage){
+  sqlite3 *db = p->db;
+  int iDb ;
+  Schema *pSchema;
+  HashElem *i;
+
+  iDb = rowlockBtreeToIndex(db, p);
+  assert( sqlite3SchemaMutexHeld(db, iDb, 0) );
+  pSchema = db->aDb[iDb].pSchema;
+
+  for(i=sqliteHashFirst(&pSchema->tblHash); i; i=sqliteHashNext(i)){
+    Table *pTab = (Table*)sqliteHashData(i);
+    if( pTab->tnum==rootPage ){
+      return 0;
+    }
+  }
+
+  for(i=sqliteHashFirst(&pSchema->idxHash); i; i=sqliteHashNext(i)){
+    Index *pIdx = (Index*)sqliteHashData(i);
+    if( pIdx->tnum==rootPage ){
+      return 1;
+    }
+  }
+  assert( 0 );
+  return 0;
+}
+
+/*
+** Check if on one have a record lock in a table.
+** Return SQLITE_OK if no one have a record lock in table.
+** Return SQLITE_LOCKED if someone have a lock for any one of records in table.
+*/
+static int rowlockLockRecordsQuery(Btree *p, int iTable){
+  int rc = SQLITE_OK;
+  BtCursor *pCur;
+  int res;
+
+  if( rowlockIsIndex(p,iTable) ){
+    /* Do nothing if it is an index. */
+    return SQLITE_OK;
+  }
+
+  pCur = (BtCursor*)sqlite3MallocZero(sizeof(BtCursor));
+  if( !pCur ) return SQLITE_NOMEM_BKPT;
+
+  rc = sqlite3BtreeCursorOriginal(p, iTable, 0, NULL, pCur);
+  if( rc ) goto rowlock_lock_records_query_end_1;
+
+  rc = sqlite3BtreeFirst(pCur, &res);
+  if( rc ) goto rowlock_lock_records_query_end_2;
+  if( res==0 ){
+    do{
+      i64 rowid = sqlite3BtreeIntegerKeyOriginal(pCur);
+      rc = sqlite3rowlockIpcLockRecordQuery(&p->btTrans.ipcHandle, iTable, rowid);
+      if( rc ) goto rowlock_lock_records_query_end_2;
+
+      rc = sqlite3BtreeNext(pCur, 0);
+    } while( rc==SQLITE_OK );
+    if( rc != SQLITE_DONE ) goto rowlock_lock_records_query_end_2;
+    assert( rc==SQLITE_DONE );
+    rc = SQLITE_OK;
+  }
+  /* Here, no one have a lock for all records in the table. */
+
+rowlock_lock_records_query_end_2:
+  sqlite3BtreeCloseCursorOriginal(pCur);
+rowlock_lock_records_query_end_1:
+  sqlite3_free(pCur);
+
+  return rc;
+}
+
+/* Get a table lock. If it is successful, we memorize locked table id into history. */
+int sqlite3rowlockIpcLockTableAndAddHistory(Btree *p, int iTable, u8 eLock){
+  int rc = SQLITE_OK;
+  u8 prevLock;
+
+  rc = sqlite3rowlockIpcLockTable(&p->btTrans.ipcHandle, iTable, eLock, MODE_LOCK_NORMAL, &prevLock);
+  if( rc ) return rc;
+
+  if( eLock>prevLock ){
+    rc = sqlite3rowlockHistoryAddTableLock(&p->btTrans.lockSavepoint, iTable, prevLock);
+  }
+
+  return rc;
+}
+
+/*
 ** Delete all records in a table.
 ** We just set a flag for the performance.
 */
@@ -432,6 +541,14 @@ int sqlite3TransBtreeClearTable(Btree *p, int iTable, int *pnChange){
     HashI64 *pTransRootPages = &pBtTrans->rootPages;
     TransRootPage *pRootPage = NULL;
     int nChangeIns = 0;
+
+    /* Check if someone has a table lock. */
+    rc = sqlite3rowlockIpcLockTableAndAddHistory(p, iTable, WRITEEX_LOCK);
+    if( rc ) return rc;
+
+    /* Check if someone has a record lock in the table. */
+    rc = rowlockLockRecordsQuery(p, iTable);
+    if( rc ) return rc;
 
     pRootPage = (TransRootPage*)sqlite3HashI64Find(pTransRootPages, 
                                                    iTable);
@@ -680,12 +797,33 @@ int sqlite3TransBtreeInsert(
   int rc = SQLITE_OK;
   BtCursorTrans *pCurTrans = &pCur->btCurTrans;
   BtCursor *pCurIns = pCurTrans->pCurIns;
+  BtCursor *pCurDel = pCurTrans->pCurDel;
   int btFlags = flags;
   int res = 1;
-  int isSaved = 0;
+  int isUpdate = 0;
 
   if( !pCurIns ){
     return sqlite3BtreeInsert(pCur, pX, flags, seekResult);
+  }
+
+  /* Judge whether it is update case or append case.
+  ** If OPFLAG_APPEND is specified or seekResult is not 0, it means the append case.
+  ** Otherwise, we check it by confirming the existence of record in shared btree.
+  ** If a record is found, it means the update case, else the append case.
+  */
+  if( !(flags&OPFLAG_APPEND) && seekResult==0 ){
+    if( pCurTrans->state==CURSOR_USE_SHARED ){
+      /* If a record exists in shared btree, it should be updated. */
+      rc = btreeMovetoOriginal(pCur, pX->pKey, pX->nKey, 0, &res);
+      if( rc ) return rc;
+      btFlags = BTREE_APPEND;
+      if( res==0 ){
+        isUpdate = 1;
+        /* Check whether we can modify a record in shared btree. */
+        rc = sqlite3rowlockIpcTableDeletable(&pCur->pBtree->btTrans.ipcHandle, pCur->pgnoRoot);
+        if( rc ) return rc;
+      }
+    }
   }
 
   /* Lock record */
@@ -707,27 +845,10 @@ int sqlite3TransBtreeInsert(
     if( rc ) return rc;
   }
 
-  /* 
-  ** If update case, we add a record into a delete table.
-  ** In order to operate it, we need to judge whether it is update case or append case.
-  ** If OPFLAG_APPEND is specified or seekResult is not 0, it means the append case.
-  ** Otherwise, we check it by confirming the existence of record in shared btree.
-  ** If a record is found, it means the update case, else the append case.
-  */
-  if( !(flags&OPFLAG_APPEND) && seekResult==0 ){
-    if( pCurTrans->state==CURSOR_USE_SHARED ){
-      /* If a record exists in shared btree, it should be updated. 
-      ** So we delete it firstly.
-      */
-      BtCursor *pCurDel = pCurTrans->pCurDel;
-      rc = btreeMovetoOriginal(pCur, pX->pKey, pX->nKey, 0, &res);
-      if( rc ) return rc;
-      if( res==0 ){
-        rc = sqlite3BtreeInsert(pCurDel, pX, 0, 0);
-        if( rc ) return rc;
-      }
-      btFlags = BTREE_APPEND;
-    }
+  /* If update case, we add a record into a delete table. */
+  if( isUpdate ){
+    rc = sqlite3BtreeInsert(pCurDel, pX, 0, 0);
+    if( rc ) return rc;
   }
 
   rc = sqlite3BtreeInsert(pCurIns, pX, btFlags, 0);
@@ -769,6 +890,9 @@ int sqlite3TransBtreeDelete(BtCursor *pCur, u8 flags){
     i64 nKey = 0;
     void *pKey = NULL;
     BtreePayload x = {0};   /* Payload to be inserted */
+
+    rc = sqlite3rowlockIpcTableDeletable(&pCur->pBtree->btTrans.ipcHandle, pCur->pgnoRoot);
+    if( rc ) return rc;
 
     if( pCur->pKeyInfo ){
       /* For an index btree. */
@@ -1359,8 +1483,19 @@ int sqlite3BtreeUpdateMetaWithTransOpen(Btree *p, int idx, u32 iMeta){
 **    Only one user can get EXCLUSIVE_LOCK if no one get WRITE_LOCK and EXCLUSIVE_LOCK.
 */
 static int sqlite3BtreeLockTableForRowLock(Btree *p, int iTab, u8 isWriteLock){
-  u8 lockType = READ_LOCK + isWriteLock;
-  return sqlite3rowlockIpcLockTable(&p->btTrans.ipcHandle, iTab, lockType, MODE_LOCK_NORMAL);
+  u8 lockType = READ_LOCK;
+
+  assert( isWriteLock==0 || isWriteLock==1 || isWriteLock==2 );
+  switch( isWriteLock ){
+    case 0: /* Require READ_LOCK */
+    case 1: /* Require WRITE_LOCK */
+      lockType = READ_LOCK + isWriteLock;
+      break;
+    case 2: /* Require EXCLUSIVE_LOCK */
+      lockType = EXCLSV_LOCK;
+      break;
+  }
+  return sqlite3rowlockIpcLockTableAndAddHistory(p, iTab, lockType);
 }
 
 /* Reset page cache. */
@@ -1866,6 +2001,7 @@ static int exclusiveLockTables(Btree *p){
   BtCursor *pCur = NULL;
   HashElemI64 *elem = NULL;
   int *isModified = NULL;
+  u8 *prevLock = NULL;
   int i = 0;
   int iTableRollback = 0;
   u64 counter = 0;
@@ -1881,8 +2017,11 @@ static int exclusiveLockTables(Btree *p){
   }
   if( counter>0 ){
     isModified = (int*)sqlite3MallocZero(sizeof(int) * counter);
-    if( !isModified ){
+    prevLock = (u8*)sqlite3MallocZero(sizeof(u8) * counter);
+    if( !isModified || !prevLock ){
       sqlite3_free(pCur);
+      sqlite3_free(isModified);
+      sqlite3_free(prevLock);
       return SQLITE_NOMEM_BKPT;
     }
   }
@@ -1906,7 +2045,7 @@ static int exclusiveLockTables(Btree *p){
 
     /* Get EXCLSV_LOCK if table is modified. */
     if( isModified[i] ){
-      rc = sqlite3rowlockIpcLockTable(&pBtTrans->ipcHandle, (int)iTable, EXCLSV_LOCK, MODE_LOCK_COMMIT);
+      rc = sqlite3rowlockIpcLockTable(&pBtTrans->ipcHandle, (int)iTable, EXCLSV_LOCK, MODE_LOCK_COMMIT, &prevLock[i]);
     }
     sqlite3BtreeCloseCursorAll(pCur);
     if( rc ) goto exclusive_lock_tables_failed;
@@ -1916,6 +2055,7 @@ static int exclusiveLockTables(Btree *p){
   }
 
   sqlite3_free(isModified);
+  sqlite3_free(prevLock);
   sqlite3_free(pCur);
   return SQLITE_OK;
 
@@ -1925,11 +2065,12 @@ exclusive_lock_tables_failed:
   i = 0;
   while( elem ){
     i64 iTable = sqliteHashI64Key(elem);
-    if( isModified[i] ) sqlite3rowlockIpcLockTable(&pBtTrans->ipcHandle, (int)iTable, 0, MODE_LOCK_ROLLBACK);
+    if( isModified[i] ) sqlite3rowlockIpcLockTable(&pBtTrans->ipcHandle, (int)iTable, MODE_LOCK_FORCE, prevLock[i], NULL);
     i++;
     elem = sqliteHashI64Next(elem);
   }
   sqlite3_free(isModified);
+  sqlite3_free(prevLock);
   sqlite3_free(pCur);
   return rc;
 }

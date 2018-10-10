@@ -30,7 +30,6 @@ typedef struct TableElement {
   PID pid;
   u64 owner;
   u8 eLock; /* WRITE_LOCK or EXCLUSIVE_LOCK */
-  u8 eLockPrev;
   u8 inUse; /* Statement using this table is processing */
 } TableElement;
 
