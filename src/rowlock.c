@@ -2139,6 +2139,9 @@ int sqlite3TransBtreeCommit(Btree *p){
     elem = sqliteHashI64Next(elem);
   }
 
+  /* Clear Btree Cursor in normal execution routine */
+  sqlite3_free(pCur);
+
   /* Clear transaction data. */
   sqlite3TransBtreeRollback(p, SQLITE_OK, 0);
  
