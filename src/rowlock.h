@@ -34,6 +34,7 @@ typedef struct BtCursorTrans {
   BtCursor *pCurDel;
   int state;
   u8 deleteAll;
+  u8 isSeqTbl; /* True if the cursor is for sqlite_sequence table */
 } BtCursorTrans;
 
 /*

@@ -28,6 +28,7 @@ void rowlockSignalHandler(int signal){
     case SIGABRT:
       sqlite3rowlockIpcUnlockRecordProc(NULL);
       sqlite3rowlockIpcUnlockTablesProc(NULL);
+      sqlite3rowlockIpcCachedRowidReset(NULL);
       break;
   }
 }
@@ -76,6 +77,7 @@ BOOL WINAPI DllMain(HINSTANCE hInst, DWORD fdwReason, LPVOID lpvReserved){
     case DLL_PROCESS_DETACH:
       sqlite3rowlockIpcUnlockRecordProc(NULL);
       sqlite3rowlockIpcUnlockTablesProc(NULL);
+      sqlite3rowlockIpcCachedRowidReset(NULL);
       break;
   }
 
@@ -445,7 +447,7 @@ static int rowlockBtreeToIndex(sqlite3 *db, Btree *p){
 /* Judge if it is table or index. */
 static u8 rowlockIsIndex(Btree *p, int rootPage){
   sqlite3 *db = p->db;
-  int iDb ;
+  int iDb;
   Schema *pSchema;
   HashElem *i;
 
@@ -453,20 +455,13 @@ static u8 rowlockIsIndex(Btree *p, int rootPage){
   assert( sqlite3SchemaMutexHeld(db, iDb, 0) );
   pSchema = db->aDb[iDb].pSchema;
 
-  for(i=sqliteHashFirst(&pSchema->tblHash); i; i=sqliteHashNext(i)){
-    Table *pTab = (Table*)sqliteHashData(i);
-    if( pTab->tnum==rootPage ){
-      return 0;
-    }
-  }
-
   for(i=sqliteHashFirst(&pSchema->idxHash); i; i=sqliteHashNext(i)){
     Index *pIdx = (Index*)sqliteHashData(i);
     if( pIdx->tnum==rootPage ){
       return 1;
     }
   }
-  assert( 0 );
+
   return 0;
 }
 
@@ -581,6 +576,29 @@ int sqlite3TransBtreeClearTable(Btree *p, int iTable, int *pnChange){
   }
 }
 
+static int rowlockIsSequenceTable(BtCursor *pCur){
+  BtCursorTrans *pCurTrans = &pCur->btCurTrans;
+  return pCurTrans->isSeqTbl;
+}
+
+/* 
+** Judge whether the cursor is of sqlite_sequence table or not.
+** The result is stored into pCurTrans->isSeqTbl.
+*/
+static void rowlockJudgeSequenceTable(Btree *p, BtCursor *pCur){
+  BtCursorTrans *pCurTrans = &pCur->btCurTrans;
+  Schema *pSchema;
+  int iDb = rowlockBtreeToIndex(p->db, p);
+
+  assert( sqlite3SchemaMutexHeld(p->db, iDb, 0) );
+  pSchema = p->db->aDb[iDb].pSchema;
+  if( pSchema->pSeqTab && (i64)pSchema->pSeqTab->tnum==(i64)pCur->pgnoRoot ){
+    pCurTrans->isSeqTbl = 1;
+  }else{
+    pCurTrans->isSeqTbl = 0;
+  }
+}
+
 /*
 ** Create cursors for insertion table and deletion talbe in trancation btree.
 */
@@ -646,6 +664,7 @@ static int transBtreeCursor(
   pCurTrans->pCurIns = pCurTransIns;
   pCurTrans->pCurDel = pCurTransDel;
   pCurTrans->state = CURSOR_USE_SHARED;
+  rowlockJudgeSequenceTable(p, pCur);
 
   return SQLITE_OK;
 
@@ -826,23 +845,26 @@ int sqlite3TransBtreeInsert(
     }
   }
 
-  /* Lock record */
-  rc = sqlite3rowlockIpcLockRecord(&pCur->pBtree->btTrans.ipcHandle, pCur->pgnoRoot, pX->nKey);
-  if( rc==SQLITE_DONE ){
-    /* Do nothing if it already has a lock. We can insert new record. */
-  }else if( rc ){
-    if( rc==SQLITE_LOCKED && cachedRowidFlagGet(pCur)==1 ){
-      /* If it is already locked, a record having same rowid is already inserted
-      ** by the other process. In this case, if rowid is issued automatically,
-      ** we need to retry the query execution. Therefore we return an special
-      ** error code.
-      */
-      return SQLITE_CORRUPT_ROWID;
+  /* We don't get a record lock for sqlite_sequence table which is used for auto-increment feature. */
+  if( !rowlockIsSequenceTable(pCur) ){
+    /* Lock record */
+    rc = sqlite3rowlockIpcLockRecord(&pCur->pBtree->btTrans.ipcHandle, pCur->pgnoRoot, pX->nKey);
+    if( rc==SQLITE_DONE ){
+      /* Do nothing if it already has a lock. We can insert new record. */
+    }else if( rc ){
+      if( rc==SQLITE_LOCKED && cachedRowidFlagGet(pCur)==1 ){
+        /* If it is already locked, a record having same rowid is already inserted
+        ** by the other process. In this case, if rowid is issued automatically,
+        ** we need to retry the query execution. Therefore we return an special
+        ** error code.
+        */
+        return SQLITE_CORRUPT_ROWID;
+      }
+      return rc;
+    }else{
+      rc = sqlite3rowlockHistoryAddRecord(&pCur->pBtree->btTrans.lockSavepoint, pCur->pgnoRoot, pX->nKey);
+      if( rc ) return rc;
     }
-    return rc;
-  }else{
-    rc = sqlite3rowlockHistoryAddRecord(&pCur->pBtree->btTrans.lockSavepoint, pCur->pgnoRoot, pX->nKey);
-    if( rc ) return rc;
   }
 
   /* If update case, we add a record into a delete table. */
@@ -1447,6 +1469,7 @@ static void sqlite3TransBtreeRollback(Btree *p, int tripCode, int writeOnly){
     transRootPagesFinish(&pBtTrans->rootPages);
     sqlite3rowlockIpcUnlockRecordProc(&pBtTrans->ipcHandle);
     sqlite3rowlockIpcUnlockTablesProc(&pBtTrans->ipcHandle);
+    sqlite3rowlockIpcCachedRowidReset(&pBtTrans->ipcHandle);
     sqlite3TransBtreeSavepoint(p, tripCode, 0);
   }
 }

@@ -21,7 +21,8 @@ typedef struct TableMetaData {
   pthread_mutex_t mutex;      /* Mutex is shared on Linux */
 #endif
   u64 nElement; /* The number of elements */
-  u64 count;    /* The number of stored elements */
+  u64 nLock;    /* The number of stored elements for table lock */
+  u64 nCache;   /* The number of stored elements for cachedRowid */
 } TableMetaData;
 
 typedef struct TableElement {
@@ -29,7 +30,7 @@ typedef struct TableElement {
   int iTable;
   PID pid;
   u64 owner;
-  u8 eLock; /* WRITE_LOCK or EXCLUSIVE_LOCK */
+  u8 eLock;
   u8 inUse; /* Statement using this table is processing */
 } TableElement;
 

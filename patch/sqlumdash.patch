@@ -433,7 +433,7 @@ diff -ru sqlite-src-3250000/src/btree.h SQLumDash3.25.0/src/btree.h
  */
 diff -ru sqlite-src-3250000/src/btreeInt.h SQLumDash3.25.0/src/btreeInt.h
 --- sqlite-src-3250000/src/btreeInt.h	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/src/btreeInt.h	2018-10-10 09:14:57.000000000 +0900
++++ SQLumDash3.25.0/src/btreeInt.h	2018-10-17 13:39:31.000000000 +0900
 @@ -214,7 +214,9 @@
  **      *     zero or more pages numbers of leaves
  */
@@ -445,18 +445,19 @@ diff -ru sqlite-src-3250000/src/btreeInt.h SQLumDash3.25.0/src/btreeInt.h
  
  /* The following value is the maximum cell size assuming a maximum page
  ** size give above.
-@@ -319,6 +321,10 @@
+@@ -319,6 +321,11 @@
  /* Candidate values for BtLock.eLock */
  #define READ_LOCK     1
  #define WRITE_LOCK    2
 +#ifndef SQLITE_OMIT_ROWLOCK
 +#define WRITEEX_LOCK  3
 +#define EXCLSV_LOCK   4
++#define NOT_LOCKED    0
 +#endif
  
  /* A Btree handle
  **
-@@ -356,6 +362,9 @@
+@@ -356,6 +363,9 @@
  #ifndef SQLITE_OMIT_SHARED_CACHE
    BtLock lock;       /* Object used to lock page 1 */
  #endif
@@ -466,7 +467,7 @@ diff -ru sqlite-src-3250000/src/btreeInt.h SQLumDash3.25.0/src/btreeInt.h
  };
  
  /*
-@@ -524,6 +533,11 @@
+@@ -524,6 +534,11 @@
    struct KeyInfo *pKeyInfo;            /* Arg passed to comparison function */
    MemPage *pPage;                        /* Current page */
    MemPage *apPage[BTCURSOR_MAX_DEPTH-1]; /* Stack of parents of current page */

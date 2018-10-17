@@ -246,7 +246,7 @@ int sqlite3rowlockIpcLockTable(IpcHandle *pHandle, int iTable, u8 eLock, int mod
   ** At least 1 empty element is required. So we can add new entry until 
   ** the element count is less than pMeta->nElement - 1.
   */
-  if( pMeta->count>=pMeta->nElement-1 ){
+  if( pMeta->nLock>=pMeta->nElement-1 ){
     rc = SQLITE_NOMEM_BKPT;
     goto lock_table_end;
   }
@@ -254,7 +254,7 @@ int sqlite3rowlockIpcLockTable(IpcHandle *pHandle, int iTable, u8 eLock, int mod
   /* If it reaches here, I can lock it. */
   if( prevLock ) *prevLock = pElement[iidx].eLock;
   rowlockIpcTableValueSet(pElement, iidx, hash, pid, iTable, pHandle->owner, eLock);
-  pMeta->count++;
+  pMeta->nLock++;
 
 lock_table_end:
   rowlockIpcMutexUnlock(IpcTableLockMutex());
@@ -316,7 +316,7 @@ u8 sqlite3rowlockIpcLockTableQuery(IpcHandle *pHandle, int iTable){
   u64 idx;
   TableElement tablelockTarget = {0};
   TableElement *pElem;
-  u8 eLock = READ_LOCK;
+  u8 eLock = NOT_LOCKED;
 
   assert( iTable!=0 );
 
@@ -395,7 +395,7 @@ static void sqlite3rowlockIpcUnlockTableCore(IpcHandle *pHandle, int iTable, int
   pElement = (TableElement*)xClass->xElemGet(pMap,idxDel);
   if( mode==MODE_UNLOCK_TRANS || pElement->eLock==READ_LOCK ){
     rowlockIpcDelete(pMap, IPC_CLASS_TABLE, hash, idxDel, xClass->xIndexPrev(pMap,idxEmpty));
-    pMeta->count--;
+    pMeta->nLock--;
   }else{
     pElement->inUse = 0;
   }
@@ -404,6 +404,8 @@ unlock_table:
   rowlockIpcMutexUnlock(IpcTableLockMutex());
 }
 
+/**********************************************************************/
+/* For testing */
 void sqlite3rowlockIpcUnlockTable(IpcHandle *pHandle, int iTable){
   sqlite3rowlockIpcUnlockTableCore(pHandle, iTable, MODE_UNLOCK_TRANS);
 }
@@ -411,6 +413,7 @@ void sqlite3rowlockIpcUnlockTable(IpcHandle *pHandle, int iTable){
 void sqlite3rowlockIpcUnlockTableStmt(IpcHandle *pHandle, int iTable){
   sqlite3rowlockIpcUnlockTableCore(pHandle, iTable, MODE_UNLOCK_STMT);
 }
+/**********************************************************************/
 
 /* 
 ** Release all locks acquired by the specified process or owner.
@@ -504,10 +507,13 @@ int sqlite3rowlockIpcCachedRowidSet(IpcHandle *pHandle, int iTable, i64 rowid){
   CachedRowid *pCachedRowid = CachedRowidPointer(pHandle);
   u32 i;
 
+  if( iTable==0 ) return SQLITE_OK;
+
   rowlockIpcMutexLock(IpcTableLockMutex());
 
   for( i=0; i<pMeta->nElement; i++ ){
     if( pCachedRowid[i].iTable==iTable || pCachedRowid[i].iTable==0 ){
+      if( pCachedRowid[i].iTable==0 ) pMeta->nCache++;
       pCachedRowid[i].iTable = iTable;
       pCachedRowid[i].rowid = rowid;
       break;
@@ -528,7 +534,7 @@ i64 sqlite3rowlockIpcCachedRowidGet(IpcHandle *pHandle, int iTable){
 
   rowlockIpcMutexLock(IpcTableLockMutex());
 
-  for( i=0; i<pMeta->nElement; i++ ){
+  for( i=0; i<pMeta->nCache; i++ ){
     if( pCachedRowid[i].iTable==iTable ){
       rowid = pCachedRowid[i].rowid;
       break;
@@ -543,12 +549,16 @@ void sqlite3rowlockIpcCachedRowidDropTable(IpcHandle *pHandle, int iTable){
   TableMetaData *pMeta = (TableMetaData*)pHandle->pTableLock;
   CachedRowid *pCachedRowid = CachedRowidPointer(pHandle);
   u64 i;
-  u64 iDel = pMeta->nElement;
+  u64 iDel;
   u64 iMove;
 
   rowlockIpcMutexLock(IpcTableLockMutex());
 
-  for( i=0; i<pMeta->nElement; i++ ){
+  if( pMeta->nCache==0 ) goto cached_rowid_drop_table_end;
+
+  iDel = pMeta->nCache;
+
+  for( i=0; i<pMeta->nCache; i++ ){
     if( pCachedRowid[i].iTable==iTable ){
       pCachedRowid[i].iTable = 0;
       pCachedRowid[i].rowid = 0;
@@ -558,24 +568,71 @@ void sqlite3rowlockIpcCachedRowidDropTable(IpcHandle *pHandle, int iTable){
     if( pCachedRowid[i].iTable==0 ) goto cached_rowid_drop_table_end;
   }
 
-  /* Search the last element. */
-  iMove = iDel;
-  for( i=iDel+1; i<pMeta->nElement; i++ ){
-    if( pCachedRowid[i].iTable==0 ){
-      iMove = i - 1;
-      break;
-    }
-  }
-
   /* Move the last element into deleted position. */
+  iMove = pMeta->nCache - 1;
   pCachedRowid[iDel].iTable = pCachedRowid[iMove].iTable;
   pCachedRowid[iDel].rowid = pCachedRowid[iMove].rowid;
   pCachedRowid[iMove].iTable = 0;
   pCachedRowid[iMove].rowid = 0;
+  pMeta->nCache--;
 
 cached_rowid_drop_table_end:
   rowlockIpcMutexUnlock(IpcTableLockMutex());
 }
 
+/* Reset CachedRowid if no one use the table. */
+void sqlite3rowlockIpcCachedRowidReset(IpcHandle *pHandle){
+  IpcHandle ipcHandle = {0};
+  TableMetaData *pMeta;
+  CachedRowid *pCachedRowid;
+  u64 i;
+  u64 iTail;
+  u64 owner;
+
+  if( !pHandle ){
+    int rc = sqlite3rowlockIpcInit(&ipcHandle, ROWLOCK_DEFAULT_MMAP_ROW_SIZE, ROWLOCK_DEFAULT_MMAP_TABLE_SIZE, NULL);
+    assert (rc==SQLITE_OK );
+    pHandle = &ipcHandle;
+  }
+
+  rowlockIpcMutexLock(IpcTableLockMutex());
+
+  pMeta = (TableMetaData*)pHandle->pTableLock;
+  if( pMeta->nCache==0 ) goto cached_rowid_reset;
+  pCachedRowid = CachedRowidPointer(pHandle);
+
+  /* 
+  ** Set owner NULL so that we get the lock state regardless the owner
+  ** by sqlite3rowlockIpcLockTableQuery().
+  */
+  owner = pHandle->owner;
+  pHandle->owner = 0;
+
+  iTail = pMeta->nCache - 1;
+  for( i=pMeta->nCache-1; ; i-- ){
+    /* Check if anyone use the table. */
+    u8 eLock = sqlite3rowlockIpcLockTableQuery(pHandle, pCachedRowid[i].iTable);
+    if( eLock==NOT_LOCKED ){
+      /* Delete the element if no one have a table lock. */
+      pCachedRowid[i].iTable = pCachedRowid[iTail].iTable;
+      pCachedRowid[i].rowid = pCachedRowid[iTail].rowid;
+      pCachedRowid[iTail].iTable = 0;
+      pCachedRowid[iTail].rowid = 0;
+      iTail--;
+    }
+    if( i==0 ) break;
+  }
+
+  pMeta->nCache = iTail + 1;
+  pHandle->owner = owner;
+
+cached_rowid_reset:
+  rowlockIpcMutexUnlock(IpcTableLockMutex());
+
+  /* Close ipc handle if it was opend in this function. */
+  if( ipcHandle.pTableLock ){
+    sqlite3rowlockIpcFinish(pHandle);
+  }
+}
 
 #endif /* SQLITE_OMIT_ROWLOCK */

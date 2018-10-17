@@ -88,6 +88,7 @@ void sqlite3rowlockIpcUnlockTablesAll(void);
 int sqlite3rowlockIpcCachedRowidSet(IpcHandle *pHandle, int iTable, i64 rowid);
 i64 sqlite3rowlockIpcCachedRowidGet(IpcHandle *pHandle, int iTable);
 void sqlite3rowlockIpcCachedRowidDropTable(IpcHandle *pHandle, int iTable);
+void sqlite3rowlockIpcCachedRowidReset(IpcHandle *pHandle);
 
 #endif /* SQLITE_ROWLOCK_IPC_H */
 #endif /* SQLITE_OMIT_ROWLOCK */
