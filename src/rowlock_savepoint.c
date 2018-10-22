@@ -142,6 +142,7 @@ static void rowlockSavepointClose(RowLockSavepoint *pLockSavepoint, int op, int 
   u64 idxRowid = 0;
   u32 nSavepoints = 0;
   u64 iStack;
+  TransRootPage *pData = NULL;
 
   /* Search the target savepoint. */
   if( pLockSavepoint->nSavepoints>0 ){
@@ -164,7 +165,10 @@ static void rowlockSavepointClose(RowLockSavepoint *pLockSavepoint, int op, int 
           xRowlockIpcUnlockRecord(pHandle, pHistory->iTable, pHistory->rowid);
           break;
         case RLH_NEW_TABLE:
-          xRootPageDelete(pRootPages, pHistory->iTable, NULL);
+          /* Free memory when DELETE and UPDADE fail by Rowlock.*/
+          pData = (TransRootPage*)xRootPageDelete(pRootPages, pHistory->iTable, NULL);
+          sqlite3KeyInfoUnref(pData->pKeyInfo);
+          sqlite3_free(pData);
         case RLH_TABLE_LOCK:
           xSavepointRollbackTableLock(pHandle, pHistory->iTable, pHistory->prevLock);
       }

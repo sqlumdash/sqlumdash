@@ -356,6 +356,7 @@ static int transBtreeDropTable(Btree *p, int iTable){
   Btree *pBtreeTrans = pBtTrans->pBtree;
   TransRootPage *pRootPage;
   int iMoved;
+  TransRootPage *pData = NULL;
 
   if( !transBtreeIsUsed(p) ){
     return SQLITE_OK;
@@ -372,9 +373,10 @@ static int transBtreeDropTable(Btree *p, int iTable){
     if( rc ) return rc;
     rc = sqlite3BtreeDropTableOriginal(pBtreeTrans, pRootPage->iDel, &iMoved);
   }
-  /* Delete the mapping */
-  sqlite3HashI64Insert(&p->btTrans.rootPages, iTable, NULL);
-  
+  /* Delete the mapping and Free memory in DROP table command.*/
+  pData = sqlite3HashI64Insert(&p->btTrans.rootPages, iTable, NULL);
+  sqlite3KeyInfoUnref(pData->pKeyInfo);
+  sqlite3_free(pData);
   return rc;
 }
 
