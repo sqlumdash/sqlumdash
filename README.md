@@ -19,6 +19,7 @@ Row lock information is shared with processes. If a process finished unexpectedl
 1-2. Copy new files
   cp src/* sqlite/src/
   cp -R tool/* sqlite/tool/
+  cp test/* sqlite/test/
 
 2. Build SQLumDash binary
 
