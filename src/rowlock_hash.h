@@ -10,7 +10,7 @@
 #ifndef SQLITE_OMIT_ROWLOCK
 #ifndef SQLITE_ROWLOCK_HASH_H
 #define SQLITE_ROWLOCK_HASH_H
-typedef __int64 sqlite_int64;
+#include "sqlite3.h"
 
 /* Forward declarations of structures. */
 typedef struct HashI64 HashI64;

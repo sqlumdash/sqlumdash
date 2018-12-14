@@ -72,7 +72,7 @@ void sqlite3_rowlock_register_lockTable_func(int(*xFunc)(IpcHandle*,int,u8)){
 
 void sqlite3_rowlock_register_rootPageDel_func(void*(*xFunc)(void*,sqlite3_int64,void*)){
   if( xFunc ){
-    xRootPageDelete = xFunc;
+    xRootPageDelete = (void*(*)(HashI64*,sqlite3_int64,void*))xFunc;
   }else{
     xRootPageDelete = sqlite3HashI64Insert;
   }
