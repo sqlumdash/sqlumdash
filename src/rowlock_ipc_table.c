@@ -12,22 +12,15 @@
 #include "btreeInt.h"
 #include "rowlock_ipc.h"
 #include "rowlock_ipc_table.h"
-
-#if SQLITE_OS_WIN
-#include <windows.h>
-#define rowlockGetPid GetCurrentProcessId
-#define rowlockGetTid GetCurrentThreadId
-#else
-#define rowlockGetPid getpid
-#define rowlockGetTid gettid
-#endif
+#include "rowlock_os.h"
 
 #define TableLockPointer(pHandle) (TableElement*)((char*)pHandle->pTableLock + sizeof(TableMetaData))
 #define CachedRowidPointer(pHandle) (CachedRowid*)((char*)pHandle->pTableLock + (sizeof(TableMetaData) + sizeof(TableElement) * pMeta->nElement))
+
 #if SQLITE_OS_WIN
-#define IpcTableLockMutex() (HANDLE)pHandle->tlMutex
+#define IpcTableLockMutex() &(pHandle->tlMutex)
 #else
-#define IpcTableLockMutex() (pthread_mutex_t)(TableMetaData())->mutex
+#define IpcTableLockMutex() &(pMeta->mutex)
 #endif
 
 extern IpcClass ipcClasses[];
@@ -35,6 +28,16 @@ extern IpcClass ipcClasses[];
 /* Mode for sqlite3rowlockIpcUnlockTableCore() */
 #define MODE_UNLOCK_TRANS 0
 #define MODE_UNLOCK_STMT  1
+
+u8 tableClassIsInitialized(void *pMap){
+  TableMetaData *pMeta = (TableMetaData*)pMap;
+  if( pMeta && pMeta->nElement>0 ){
+    return 1;
+  }else{
+    return 0;
+  }
+}
+
 
 void tableClassInitArea(void *pMap, u64 allocSize){
   u64 nElem = (allocSize - sizeof(TableMetaData)) / (sizeof(TableElement) + sizeof(CachedRowid));
@@ -186,7 +189,7 @@ int sqlite3rowlockIpcLockTable(IpcHandle *pHandle, int iTable, u8 eLock, int mod
   assert( iTable!=0 );
   assert( eLock!=EXCLSV_LOCK || iTable!=MASTER_ROOT );
 
-  rowlockIpcMutexLock(IpcTableLockMutex());
+  rowlockOsMutexEnter(IpcTableLockMutex());
 
   /* Find the first element having same iTable. */
   pElem = (TableElement*)xClass->xElemGet(pMap, idx);
@@ -257,7 +260,8 @@ int sqlite3rowlockIpcLockTable(IpcHandle *pHandle, int iTable, u8 eLock, int mod
   pMeta->nLock++;
 
 lock_table_end:
-  rowlockIpcMutexUnlock(IpcTableLockMutex());
+  rowlockOsMmapSync(pMap);
+  rowlockOsMutexLeave(IpcTableLockMutex());
   return rc;
 }
 
@@ -282,7 +286,7 @@ int sqlite3rowlockIpcTableDeletable(IpcHandle *pHandle, int iTable){
 
   assert( iTable!=0 && iTable!=MASTER_ROOT );
 
-  rowlockIpcMutexLock(IpcTableLockMutex());
+  rowlockOsMutexEnter(IpcTableLockMutex());
 
   /* Find the first element having same iTable. */
   pElem = (TableElement*)xClass->xElemGet(pMap, idx);
@@ -303,7 +307,7 @@ int sqlite3rowlockIpcTableDeletable(IpcHandle *pHandle, int iTable){
     pElem = (TableElement*)xClass->xElemGet(pMap, idx);
   }
 
-  rowlockIpcMutexUnlock(IpcTableLockMutex());
+  rowlockOsMutexLeave(IpcTableLockMutex());
   return rc;
 }
 
@@ -312,6 +316,7 @@ u8 sqlite3rowlockIpcLockTableQuery(IpcHandle *pHandle, int iTable){
   int rc = SQLITE_OK;
   IpcClass *xClass = &ipcClasses[IPC_CLASS_TABLE];
   void *pMap = pHandle->pTableLock;
+  TableMetaData *pMeta = (TableMetaData*)pMap;
   u64 hash = xClass->xCalcHash(pMap, iTable);
   u64 idx;
   TableElement tablelockTarget = {0};
@@ -320,7 +325,7 @@ u8 sqlite3rowlockIpcLockTableQuery(IpcHandle *pHandle, int iTable){
 
   assert( iTable!=0 );
 
-  rowlockIpcMutexLock(IpcTableLockMutex());
+  rowlockOsMutexEnter(IpcTableLockMutex());
 
   /* Search a target */
   if( !xClass->xElemIsValid(xClass->xElemGet(pMap,hash)) ){
@@ -337,7 +342,7 @@ u8 sqlite3rowlockIpcLockTableQuery(IpcHandle *pHandle, int iTable){
   eLock = pElem->eLock;
 
 lock_table_query:
-  rowlockIpcMutexUnlock(IpcTableLockMutex());
+  rowlockOsMutexLeave(IpcTableLockMutex());
   return eLock;
 }
 
@@ -366,7 +371,7 @@ static void sqlite3rowlockIpcUnlockTableCore(IpcHandle *pHandle, int iTable, int
 
   assert( iTable!=0 );
 
-  rowlockIpcMutexLock(IpcTableLockMutex());
+  rowlockOsMutexEnter(IpcTableLockMutex());
 
   /* Search a deleting target */
   if( !xClass->xElemIsValid(xClass->xElemGet(pMap,hash)) ){
@@ -401,7 +406,8 @@ static void sqlite3rowlockIpcUnlockTableCore(IpcHandle *pHandle, int iTable, int
   }
 
 unlock_table:
-  rowlockIpcMutexUnlock(IpcTableLockMutex());
+  rowlockOsMmapSync(pMap);
+  rowlockOsMutexLeave(IpcTableLockMutex());
 }
 
 /**********************************************************************/
@@ -442,10 +448,11 @@ static void sqlite3rowlockIpcUnlockTablesProcCore(IpcHandle *pHandle, PID pid, i
     pHandle = &ipcHandle;
   }
 
-  rowlockIpcMutexLock(IpcTableLockMutex());
-
   pMap = pHandle->pTableLock;
   pMeta = (TableMetaData*)pHandle->pTableLock;
+
+  rowlockOsMutexEnter(IpcTableLockMutex());
+
   pElement = TableLockPointer(pHandle);
   nElem = xClass->xElemCount(pMap);
   if( nElem==0 ) goto unlock_tables_proc_end;
@@ -477,7 +484,8 @@ static void sqlite3rowlockIpcUnlockTablesProcCore(IpcHandle *pHandle, PID pid, i
   }while( idx!=idxStart );
 
 unlock_tables_proc_end:
-  rowlockIpcMutexUnlock(IpcTableLockMutex());
+  rowlockOsMmapSync(pMap);
+  rowlockOsMutexLeave(IpcTableLockMutex());
 
   /* Close ipc handle if it was opend in this function. */
   if( ipcHandle.pTableLock ){
@@ -509,7 +517,7 @@ int sqlite3rowlockIpcCachedRowidSet(IpcHandle *pHandle, int iTable, i64 rowid){
 
   if( iTable==0 ) return SQLITE_OK;
 
-  rowlockIpcMutexLock(IpcTableLockMutex());
+  rowlockOsMutexEnter(IpcTableLockMutex());
 
   for( i=0; i<pMeta->nElement; i++ ){
     if( pCachedRowid[i].iTable==iTable || pCachedRowid[i].iTable==0 ){
@@ -522,7 +530,8 @@ int sqlite3rowlockIpcCachedRowidSet(IpcHandle *pHandle, int iTable, i64 rowid){
 
   if( i==pMeta->nElement ) rc = SQLITE_NOMEM_BKPT;
 
-  rowlockIpcMutexUnlock(IpcTableLockMutex());
+  rowlockOsMmapSync(pMeta);
+  rowlockOsMutexLeave(IpcTableLockMutex());
   return rc;
 }
 
@@ -532,7 +541,7 @@ i64 sqlite3rowlockIpcCachedRowidGet(IpcHandle *pHandle, int iTable){
   u32 i;
   i64 rowid = 0;
 
-  rowlockIpcMutexLock(IpcTableLockMutex());
+  rowlockOsMutexEnter(IpcTableLockMutex());
 
   for( i=0; i<pMeta->nCache; i++ ){
     if( pCachedRowid[i].iTable==iTable ){
@@ -541,7 +550,7 @@ i64 sqlite3rowlockIpcCachedRowidGet(IpcHandle *pHandle, int iTable){
     }
   }
 
-  rowlockIpcMutexUnlock(IpcTableLockMutex());
+  rowlockOsMutexLeave(IpcTableLockMutex());
   return rowid;
 }
 
@@ -552,7 +561,7 @@ void sqlite3rowlockIpcCachedRowidDropTable(IpcHandle *pHandle, int iTable){
   u64 iDel;
   u64 iMove;
 
-  rowlockIpcMutexLock(IpcTableLockMutex());
+  rowlockOsMutexEnter(IpcTableLockMutex());
 
   if( pMeta->nCache==0 ) goto cached_rowid_drop_table_end;
 
@@ -577,7 +586,8 @@ void sqlite3rowlockIpcCachedRowidDropTable(IpcHandle *pHandle, int iTable){
   pMeta->nCache--;
 
 cached_rowid_drop_table_end:
-  rowlockIpcMutexUnlock(IpcTableLockMutex());
+  rowlockOsMmapSync(pMeta);
+  rowlockOsMutexLeave(IpcTableLockMutex());
 }
 
 /* Reset CachedRowid if no one use the table. */
@@ -595,9 +605,10 @@ void sqlite3rowlockIpcCachedRowidReset(IpcHandle *pHandle){
     pHandle = &ipcHandle;
   }
 
-  rowlockIpcMutexLock(IpcTableLockMutex());
-
   pMeta = (TableMetaData*)pHandle->pTableLock;
+
+  rowlockOsMutexEnter(IpcTableLockMutex());
+
   if( pMeta->nCache==0 ) goto cached_rowid_reset;
   pCachedRowid = CachedRowidPointer(pHandle);
 
@@ -627,11 +638,13 @@ void sqlite3rowlockIpcCachedRowidReset(IpcHandle *pHandle){
   pHandle->owner = owner;
 
 cached_rowid_reset:
-  rowlockIpcMutexUnlock(IpcTableLockMutex());
+  rowlockOsMmapSync(pMeta);
+  rowlockOsMutexLeave(IpcTableLockMutex());
 
   /* Close ipc handle if it was opend in this function. */
   if( ipcHandle.pTableLock ){
     sqlite3rowlockIpcFinish(pHandle);
+    sqlite3rowlockIpcRemoveFile(MMAP_NAME_TABLELOCK);
   }
 }
 

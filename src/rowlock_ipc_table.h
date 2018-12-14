@@ -16,9 +16,15 @@
 #include "Windows.h"
 #endif
 
+/* MMAP name */
+#define MMAP_NAME_TABLELOCK "TABLELOCK_MAP"
+/* Mutex name */
+#define MUTEX_NAME_TABLELOCK "TABLELOCK_MUTEX"
+
+
 typedef struct TableMetaData {
 #if SQLITE_OS_UNIX
-  pthread_mutex_t mutex;      /* Mutex is shared on Linux */
+  MUTEX_HANDLE mutex; /* Mutex is shared on Linux */
 #endif
   u64 nElement; /* The number of elements */
   u64 nLock;    /* The number of stored elements for table lock */
@@ -39,6 +45,7 @@ typedef struct CachedRowid {
   i64 rowid;
 } CachedRowid;
 
+u8 tableClassIsInitialized(void *pMap);
 void tableClassInitArea(void *pMap, u64 nElem);
 u64 tableClassElemCount(void *pMap);
 u8 tableClassIsValid(void *pElem);

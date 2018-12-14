@@ -1,6 +1,190 @@
+diff -ru sqlite-src-3250000/Makefile.in SQLumDash3.25.0/Makefile.in
+--- sqlite-src-3250000/Makefile.in	2018-09-15 20:35:52.000000000 +0900
++++ SQLumDash3.25.0/Makefile.in	2018-12-14 10:34:09.000000000 +0900
+@@ -69,6 +69,9 @@
+ # 
+ TLIBS = @LIBS@ $(LIBS)
+ 
++# Add libm for new functions of SQLumDash
++TLIBS += -lm
++
+ # Flags controlling use of the in memory btree implementation
+ #
+ # SQLITE_TEMP_STORE is 0 to force temporary tables to be in a file, 1 to
+@@ -190,7 +193,9 @@
+          update.lo upsert.lo util.lo vacuum.lo \
+          vdbe.lo vdbeapi.lo vdbeaux.lo vdbeblob.lo vdbemem.lo vdbesort.lo \
+          vdbetrace.lo wal.lo walker.lo where.lo wherecode.lo whereexpr.lo \
+-         window.lo utf.lo vtab.lo
++         window.lo utf.lo vtab.lo \
++         rowlock.lo rowlock_hash.lo rowlock_ipc.lo rowlock_ipc_row.lo \
++         rowlock_ipc_table.lo rowlock_os_linux.lo rowlock_savepoint.lo
+ 
+ # Object files for the amalgamation.
+ #
+@@ -226,6 +231,7 @@
+   $(TOP)/src/fault.c \
+   $(TOP)/src/fkey.c \
+   $(TOP)/src/func.c \
++  $(TOP)/src/funcNew.c \
+   $(TOP)/src/global.c \
+   $(TOP)/src/hash.c \
+   $(TOP)/src/hash.h \
+@@ -307,6 +313,30 @@
+   $(TOP)/src/whereInt.h \
+   $(TOP)/src/window.c
+ 
++# Source code for SQLumDash
++#
++SRC += \
++  $(TOP)/src/rowlock.c \
++  $(TOP)/src/rowlock.h \
++  $(TOP)/src/rowlock_btree.c \
++  $(TOP)/src/rowlock_hash.c \
++  $(TOP)/src/rowlock_hash.h \
++  $(TOP)/src/rowlock_ipc.c \
++  $(TOP)/src/rowlock_ipc.h \
++  $(TOP)/src/rowlock_ipc_row.c \
++  $(TOP)/src/rowlock_ipc_row.h \
++  $(TOP)/src/rowlock_ipc_table.c \
++  $(TOP)/src/rowlock_ipc_table.h \
++  $(TOP)/src/rowlock_macro.h \
++  $(TOP)/src/rowlock_os.h \
++  $(TOP)/src/rowlock_os_linux.c \
++  $(TOP)/src/rowlock_os_linux.h \
++  $(TOP)/src/rowlock_os_win.c \
++  $(TOP)/src/rowlock_os_win.h \
++  $(TOP)/src/rowlock_pager.c \
++  $(TOP)/src/rowlock_savepoint.c \
++  $(TOP)/src/rowlock_savepoint.h
++  
+ # Source code for extensions
+ #
+ SRC += \
+@@ -470,6 +500,7 @@
+   $(TOP)/src/dbstat.c \
+   $(TOP)/src/expr.c \
+   $(TOP)/src/func.c \
++  $(TOP)/src/funcNew.c \
+   $(TOP)/src/insert.c \
+   $(TOP)/src/wal.c \
+   $(TOP)/src/main.c \
+@@ -497,6 +528,14 @@
+   $(TOP)/src/wherecode.c \
+   $(TOP)/src/whereexpr.c \
+   $(TOP)/src/window.c \
++  $(TOP)/src/rowlock.c \
++  $(TOP)/src/rowlock_hash.c \
++  $(TOP)/src/rowlock_ipc.c \
++  $(TOP)/src/rowlock_ipc_row.c \
++  $(TOP)/src/rowlock_ipc_table.c \
++  $(TOP)/src/rowlock_os_linux.c \
++  $(TOP)/src/rowlock_os_win.c \
++  $(TOP)/src/rowlock_savepoint.c \
+   parse.c \
+   $(TOP)/ext/fts3/fts3.c \
+   $(TOP)/ext/fts3/fts3_aux.c \
+@@ -513,6 +552,7 @@
+ HDR = \
+    $(TOP)/src/btree.h \
+    $(TOP)/src/btreeInt.h \
++   $(TOP)/src/funcNew.h \
+    $(TOP)/src/hash.h \
+    $(TOP)/src/hwtime.h \
+    keywordhash.h \
+@@ -535,6 +575,16 @@
+    $(TOP)/src/vdbeInt.h \
+    $(TOP)/src/vxworks.h \
+    $(TOP)/src/whereInt.h \
++   $(TOP)/src/rowlock.h \
++   $(TOP)/src/rowlock_hash.h \
++   $(TOP)/src/rowlock_ipc.h \
++   $(TOP)/src/rowlock_ipc_row.h \
++   $(TOP)/src/rowlock_ipc_table.h \
++   $(TOP)/src/rowlock_macro.h \
++   $(TOP)/src/rowlock_os.h \
++   $(TOP)/src/rowlock_os_linux.h \
++   $(TOP)/src/rowlock_os_win.h \
++   $(TOP)/src/rowlock_savepoint.h \
+    config.h
+ 
+ # Header files used by extensions
+@@ -606,7 +656,7 @@
+ # This is the default Makefile target.  The objects listed here
+ # are what get build when you type just "make" with no arguments.
+ #
+-all:	sqlite3.h libsqlite3.la sqlite3$(TEXE) $(HAVE_TCL:1=libtclsqlite3.la)
++all:	sqlite3.h libsqlite3.la sqlite3$(TEXE) $(HAVE_TCL:1=libtclsqlite3.la) sqlumdash_cleaner
+ 
+ Makefile: $(TOP)/Makefile.in
+ 	./config.status
+@@ -975,6 +1025,27 @@
+ window.lo:	$(TOP)/src/window.c $(HDR)
+ 	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/window.c
+ 
++rowlock.lo:	$(TOP)/src/rowlock.c $(HDR)
++	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/rowlock.c
++
++rowlock_hash.lo:	$(TOP)/src/rowlock_hash.c $(HDR)
++	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/rowlock_hash.c
++
++rowlock_ipc.lo:	$(TOP)/src/rowlock_ipc.c $(HDR)
++	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/rowlock_ipc.c
++
++rowlock_ipc_row.lo:	$(TOP)/src/rowlock_ipc_row.c $(HDR)
++	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/rowlock_ipc_row.c
++
++rowlock_ipc_table.lo:	$(TOP)/src/rowlock_ipc_table.c $(HDR)
++	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/rowlock_ipc_table.c
++
++rowlock_os_linux.lo:	$(TOP)/src/rowlock_os_linux.c $(HDR)
++	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/rowlock_os_linux.c
++
++rowlock_savepoint.lo:	$(TOP)/src/rowlock_savepoint.c $(HDR)
++	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/rowlock_savepoint.c
++
+ tclsqlite.lo:	$(TOP)/src/tclsqlite.c $(HDR)
+ 	$(LTCOMPILE) -DUSE_TCL_STUBS=1 -c $(TOP)/src/tclsqlite.c
+ 
+@@ -1033,6 +1104,26 @@
+ 
+ 
+ 
++# Rules to build the cleanup tool of lowlock
++#
++CLEANER_HDR = \
++	$(TOP)/src/rowlock_ipc_row.h \
++	$(TOP)/src/rowlock_ipc_table.h \
++	$(TOP)/src/rowlock_os.h \
++	$(TOP)/src/rowlock_os_linux.h \
++	$(TOP)/src/rowlock_os_win.h
++
++CLEANER_SRC = \
++	$(TOP)/tool/rowlock_cleaner.c \
++	$(TOP)/src/rowlock_ipc.c \
++	$(TOP)/src/rowlock_ipc_row.c \
++	$(TOP)/src/rowlock_ipc_table.c \
++	$(TOP)/src/rowlock_os_linux.c \
++	$(TOP)/src/rowlock_os_win.c
++
++sqlumdash_cleaner:	 $(CLEANER_SRC) $(CLEANER_HDR) $(SQLITE3H)
++	$(TCC) -o sqlumdash_cleaner -I$(TOP) -I$(TOP)/src -lpthread $(OPT_FEATURE_FLAGS) $(OPTS) $(CLEANER_SRC)
++
+ # Rules to build the extension objects.
+ #
+ icu.lo:	$(TOP)/ext/icu/icu.c $(HDR) $(EXTHDR)
+@@ -1390,6 +1481,8 @@
+ 	rm -f sqldiff sqldiff.exe
+ 	rm -f dbhash dbhash.exe
+ 	rm -f fts5.* fts5parse.*
++	rm -f sqlumdash_cleaner sqlumdash_cleaner
++
+ 
+ distclean:	clean
+ 	rm -f config.h config.log config.status libtool Makefile sqlite3.pc
 diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
 --- sqlite-src-3250000/Makefile.msc	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/Makefile.msc	2018-11-08 13:24:11.000000000 +0900
++++ SQLumDash3.25.0/Makefile.msc	2018-12-14 10:34:09.000000000 +0900
 @@ -950,8 +950,8 @@
  
  # Should the database engine be compiled threadsafe
@@ -21,17 +205,18 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
  # Flags controlling use of the in memory btree implementation
  #
  # SQLITE_TEMP_STORE is 0 to force temporary tables to be in a file, 1 to
-@@ -1214,7 +1216,8 @@
+@@ -1214,7 +1216,9 @@
           update.lo upsert.lo util.lo vacuum.lo \
           vdbeapi.lo vdbeaux.lo vdbeblob.lo vdbemem.lo vdbesort.lo \
           vdbetrace.lo wal.lo walker.lo where.lo wherecode.lo whereexpr.lo \
 -         window.lo utf.lo vtab.lo
 +         window.lo utf.lo vtab.lo \
-+         rowlock.lo rowlock_hash.lo rowlock_ipc.lo rowlock_ipc_row.lo rowlock_ipc_table.lo rowlock_savepoint.lo
++         rowlock.lo rowlock_hash.lo rowlock_ipc.lo rowlock_ipc_row.lo \
++         rowlock_ipc_table.lo rowlock_os_win.lo rowlock_savepoint.lo
  # <</mark>>
  
  # Object files for the amalgamation.
-@@ -1265,6 +1268,7 @@
+@@ -1265,6 +1269,7 @@
    $(TOP)\src\fault.c \
    $(TOP)\src\fkey.c \
    $(TOP)\src\func.c \
@@ -39,7 +224,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
    $(TOP)\src\global.c \
    $(TOP)\src\hash.c \
    $(TOP)\src\insert.c \
-@@ -1326,7 +1330,15 @@
+@@ -1326,7 +1331,17 @@
    $(TOP)\src\where.c \
    $(TOP)\src\wherecode.c \
    $(TOP)\src\whereexpr.c \
@@ -51,12 +236,14 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
 +  $(TOP)\src\rowlock_ipc.c \
 +  $(TOP)\src\rowlock_ipc_row.c \
 +  $(TOP)\src\rowlock_ipc_table.c \
++  $(TOP)\src\rowlock_os_linux.c \
++  $(TOP)\src\rowlock_os_win.c \
 +  $(TOP)\src\rowlock_pager.c \
 +  $(TOP)\src\rowlock_savepoint.c
  
  # Core miscellaneous files.
  #
-@@ -1338,6 +1350,7 @@
+@@ -1338,6 +1353,7 @@
  SRC04 = \
    $(TOP)\src\btree.h \
    $(TOP)\src\btreeInt.h \
@@ -64,7 +251,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
    $(TOP)\src\hash.h \
    $(TOP)\src\hwtime.h \
    $(TOP)\src\msvc.h \
-@@ -1361,7 +1374,14 @@
+@@ -1361,7 +1377,17 @@
    $(TOP)\src\vdbeInt.h \
    $(TOP)\src\vxworks.h \
    $(TOP)\src\wal.h \
@@ -76,11 +263,14 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
 +  $(TOP)\src\rowlock_ipc_row.h \
 +  $(TOP)\src\rowlock_ipc_table.h \
 +  $(TOP)\src\rowlock_macro.h \
++  $(TOP)\src\rowlock_os.h \
++  $(TOP)\src\rowlock_os_linux.h \
++  $(TOP)\src\rowlock_os_win.h \
 +  $(TOP)\src\rowlock_savepoint.h
  
  # Extension source code files, part 1.
  #
-@@ -1459,6 +1479,7 @@
+@@ -1459,6 +1485,7 @@
    $(TOP)\src\test2.c \
    $(TOP)\src\test3.c \
    $(TOP)\src\test4.c \
@@ -88,7 +278,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
    $(TOP)\src\test5.c \
    $(TOP)\src\test6.c \
    $(TOP)\src\test7.c \
-@@ -1576,7 +1597,14 @@
+@@ -1576,7 +1603,16 @@
     $(TOP)\src\vdbe.h \
     $(TOP)\src\vdbeInt.h \
     $(TOP)\src\vxworks.h \
@@ -100,11 +290,13 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
 +   $(TOP)\src\rowlock_ipc_row.h \
 +   $(TOP)\src\rowlock_ipc_table.h \
 +   $(TOP)\src\rowlock_macro.h \
++   $(TOP)\src\rowlock_os.h \
++   $(TOP)\src\rowlock_os_win.h \
 +   $(TOP)\src\rowlock_savepoint.h
  
  # Header files used by extensions
  #
-@@ -1662,7 +1690,7 @@
+@@ -1662,7 +1698,7 @@
  # This is the default Makefile target.  The objects listed here
  # are what get build when you type just "make" with no arguments.
  #
@@ -113,7 +305,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
  
  # Targets that require the Tcl library.
  #
-@@ -1695,8 +1723,10 @@
+@@ -1695,8 +1731,10 @@
  sqlite3.def:	libsqlite3.lib
  	echo EXPORTS > sqlite3.def
  	dumpbin /all libsqlite3.lib \
@@ -126,7 +318,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
  # <</block2>>
  
  $(SQLITE3EXE):	shell.c $(SHELL_CORE_DEP) $(LIBRESOBJS) $(SHELL_CORE_SRC) $(SQLITE3H)
-@@ -2070,6 +2100,24 @@
+@@ -2070,6 +2108,27 @@
  window.lo:	$(TOP)\src\window.c $(HDR)
  	$(LTCOMPILE) $(CORE_COMPILE_OPTS) -c $(TOP)\src\window.c
  
@@ -145,13 +337,16 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
 +rowlock_ipc_table.lo:	$(TOP)\src\rowlock_ipc_table.c $(HDR)
 +	$(LTCOMPILE) $(CORE_COMPILE_OPTS) -c $(TOP)\src\rowlock_ipc_table.c
 +
++rowlock_os_win.lo:	$(TOP)\src\rowlock_os_win.c $(HDR)
++	$(LTCOMPILE) $(CORE_COMPILE_OPTS) -c $(TOP)\src\rowlock_os_win.c
++
 +rowlock_savepoint.lo:	$(TOP)\src\rowlock_savepoint.c $(HDR)
 +	$(LTCOMPILE) $(CORE_COMPILE_OPTS) -c $(TOP)\src\rowlock_savepoint.c
 +
  tclsqlite.lo:	$(TOP)\src\tclsqlite.c $(HDR) $(SQLITE_TCL_DEP)
  	$(LTCOMPILE) $(NO_WARN) -DUSE_TCL_STUBS=1 -DBUILD_sqlite -I$(TCLINCDIR) -c $(TOP)\src\tclsqlite.c
  
-@@ -2141,6 +2189,18 @@
+@@ -2141,6 +2200,19 @@
  zlib:
  	pushd $(ZLIBDIR) && $(MAKE) /f win32\Makefile.msc clean $(ZLIBLIB) && popd
  
@@ -161,7 +356,8 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
 +	$(TOP)\tool\rowlock_cleaner.c \
 +	$(TOP)\src\rowlock_ipc.c \
 +	$(TOP)\src\rowlock_ipc_row.c \
-+	$(TOP)\src\rowlock_ipc_table.c
++	$(TOP)\src\rowlock_ipc_table.c \
++	$(TOP)\src\rowlock_os_win.c
 +
 +sqlumdash_cleaner.exe:	 $(CLEANER_SRC) $(SQLITE3H)
 +	$(TCC) $(NO_WARN) -Fe$@ $(REQ_FEATURE_FLAGS) $(OPT_FEATURE_FLAGS) $(EXT_FEATURE_FLAGS) $(OPTS) \
@@ -170,13 +366,31 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
  # Rules to build the extension objects.
  #
  icu.lo:	$(TOP)\ext\icu\icu.c $(HDR) $(EXTHDR)
-@@ -2512,4 +2572,5 @@
+@@ -2512,4 +2584,5 @@
  	del /Q showshm.exe sqlite3_checker.* sqlite3_expert.exe 2>NUL
  	del /Q fts5.* fts5parse.* 2>NUL
  	del /Q lsm.h lsm1.c 2>NUL
 +	del /Q sqlumdash_cleaner.exe 2>NUL
  # <</mark>>
 sqlite-src-3250000 のみに存在: compat
+diff -ru sqlite-src-3250000/configure.ac SQLumDash3.25.0/configure.ac
+--- sqlite-src-3250000/configure.ac	2018-09-15 20:35:52.000000000 +0900
++++ SQLumDash3.25.0/configure.ac	2018-12-14 10:34:09.000000000 +0900
+@@ -188,12 +188,12 @@
+   SQLITE_THREADSAFE=0
+   AC_MSG_RESULT([no])
+ else
+-  SQLITE_THREADSAFE=1
++  SQLITE_THREADSAFE=2
+   AC_MSG_RESULT([yes])
+ fi
+ AC_SUBST(SQLITE_THREADSAFE)
+ 
+-if test "$SQLITE_THREADSAFE" = "1"; then
++if test "$SQLITE_THREADSAFE" != "0"; then
+   AC_SEARCH_LIBS(pthread_create, pthread)
+   AC_SEARCH_LIBS(pthread_mutexattr_init, pthread)
+ fi
 diff -ru sqlite-src-3250000/src/alter.c SQLumDash3.25.0/src/alter.c
 --- sqlite-src-3250000/src/alter.c	2018-09-15 20:35:52.000000000 +0900
 +++ SQLumDash3.25.0/src/alter.c	2018-09-26 12:01:22.000000000 +0900
@@ -557,7 +771,7 @@ diff -ru sqlite-src-3250000/src/main.c SQLumDash3.25.0/src/main.c
      case SQLITE_CONFIG_SORTERREF_SIZE: {
 diff -ru sqlite-src-3250000/src/pager.c SQLumDash3.25.0/src/pager.c
 --- sqlite-src-3250000/src/pager.c	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/src/pager.c	2018-09-26 12:01:22.000000000 +0900
++++ SQLumDash3.25.0/src/pager.c	2018-12-14 10:26:24.000000000 +0900
 @@ -848,6 +848,10 @@
  # define pagerBeginReadTransaction(z) SQLITE_OK
  #endif
@@ -569,16 +783,17 @@ diff -ru sqlite-src-3250000/src/pager.c SQLumDash3.25.0/src/pager.c
  #ifndef NDEBUG 
  /*
  ** Usage:
-@@ -857,7 +861,7 @@
+@@ -857,7 +861,8 @@
  ** This function runs many asserts to try to find inconsistencies in
  ** the internal state of the Pager object.
  */
 -static int assert_pager_state(Pager *p){
++static int assert_pager_state(Pager *p);
 +static int assert_pager_state_original(Pager *p){
    Pager *pPager = p;
  
    /* State must be valid. */
-@@ -3921,7 +3925,7 @@
+@@ -3921,7 +3926,7 @@
  */
  static int pager_wait_on_lock(Pager *pPager, int locktype){
    int rc;                              /* Return code */
@@ -587,7 +802,7 @@ diff -ru sqlite-src-3250000/src/pager.c SQLumDash3.25.0/src/pager.c
    /* Check that this is either a no-op (because the requested lock is 
    ** already held), or one of the transitions that the busy-handler
    ** may be invoked during, according to the comment above
-@@ -4397,7 +4401,8 @@
+@@ -4397,7 +4402,8 @@
  ** occurs, an IO error code is returned. Or, if the EXCLUSIVE lock cannot
  ** be obtained, SQLITE_BUSY is returned.
  */
@@ -609,6 +824,11 @@ SQLumDash3.25.0/src のみに存在: rowlock_ipc_row.h
 SQLumDash3.25.0/src のみに存在: rowlock_ipc_table.c
 SQLumDash3.25.0/src のみに存在: rowlock_ipc_table.h
 SQLumDash3.25.0/src のみに存在: rowlock_macro.h
+SQLumDash3.25.0/src のみに存在: rowlock_os.h
+SQLumDash3.25.0/src のみに存在: rowlock_os_linux.c
+SQLumDash3.25.0/src のみに存在: rowlock_os_linux.h
+SQLumDash3.25.0/src のみに存在: rowlock_os_win.c
+SQLumDash3.25.0/src のみに存在: rowlock_os_win.h
 SQLumDash3.25.0/src のみに存在: rowlock_pager.c
 SQLumDash3.25.0/src のみに存在: rowlock_savepoint.c
 SQLumDash3.25.0/src のみに存在: rowlock_savepoint.h
@@ -1052,21 +1272,25 @@ diff -ru sqlite-src-3250000/test/tester.tcl SQLumDash3.25.0/test/tester.tcl
            lappend leftover $a
 diff -ru sqlite-src-3250000/tool/mksqlite3c-noext.tcl SQLumDash3.25.0/tool/mksqlite3c-noext.tcl
 --- sqlite-src-3250000/tool/mksqlite3c-noext.tcl	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/tool/mksqlite3c-noext.tcl	2018-09-26 12:01:23.000000000 +0900
-@@ -119,6 +119,12 @@
++++ SQLumDash3.25.0/tool/mksqlite3c-noext.tcl	2018-12-14 10:34:09.000000000 +0900
+@@ -119,6 +119,16 @@
     vxworks.h
     wal.h
     whereInt.h
 +   rowlock.h
 +   rowlock_hash.h
 +   rowlock_ipc.h
-+   rowlock_ipc_table.h
 +   rowlock_ipc_row.h
++   rowlock_ipc_table.h
++   rowlock_macro.h
++   rowlock_os.h
++   rowlock_os_linux.h
++   rowlock_os_win.h
 +   rowlock_savepoint.h
  } {
    set available_hdr($hdr) 1
  }
-@@ -336,6 +342,7 @@
+@@ -336,6 +346,7 @@
     callback.c
     delete.c
     func.c
@@ -1074,7 +1298,7 @@ diff -ru sqlite-src-3250000/tool/mksqlite3c-noext.tcl SQLumDash3.25.0/tool/mksql
     fkey.c
     insert.c
     legacy.c
-@@ -353,6 +360,15 @@
+@@ -353,6 +364,17 @@
     where.c
     window.c
  
@@ -1084,6 +1308,8 @@ diff -ru sqlite-src-3250000/tool/mksqlite3c-noext.tcl SQLumDash3.25.0/tool/mksql
 +   rowlock_ipc.c
 +   rowlock_ipc_row.c
 +   rowlock_ipc_table.c
++   rowlock_os_linux.c
++   rowlock_os_win.c
 +   rowlock_pager.c
 +   rowlock_savepoint.c
 +
@@ -1092,21 +1318,25 @@ diff -ru sqlite-src-3250000/tool/mksqlite3c-noext.tcl SQLumDash3.25.0/tool/mksql
     tokenize.c
 diff -ru sqlite-src-3250000/tool/mksqlite3c.tcl SQLumDash3.25.0/tool/mksqlite3c.tcl
 --- sqlite-src-3250000/tool/mksqlite3c.tcl	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/tool/mksqlite3c.tcl	2018-09-26 12:01:23.000000000 +0900
-@@ -127,6 +127,12 @@
++++ SQLumDash3.25.0/tool/mksqlite3c.tcl	2018-12-14 10:34:09.000000000 +0900
+@@ -127,6 +127,16 @@
     vxworks.h
     wal.h
     whereInt.h
 +   rowlock.h
 +   rowlock_hash.h
 +   rowlock_ipc.h
-+   rowlock_ipc_table.h
 +   rowlock_ipc_row.h
++   rowlock_ipc_table.h
++   rowlock_macro.h
++   rowlock_os.h
++   rowlock_os_linux.h
++   rowlock_os_win.h
 +   rowlock_savepoint.h
  } {
    set available_hdr($hdr) 1
  }
-@@ -354,6 +360,7 @@
+@@ -354,6 +364,7 @@
     callback.c
     delete.c
     func.c
@@ -1114,7 +1344,7 @@ diff -ru sqlite-src-3250000/tool/mksqlite3c.tcl SQLumDash3.25.0/tool/mksqlite3c.
     fkey.c
     insert.c
     legacy.c
-@@ -372,6 +379,15 @@
+@@ -372,6 +383,17 @@
     where.c
     window.c
  
@@ -1124,6 +1354,8 @@ diff -ru sqlite-src-3250000/tool/mksqlite3c.tcl SQLumDash3.25.0/tool/mksqlite3c.
 +   rowlock_ipc.c
 +   rowlock_ipc_row.c
 +   rowlock_ipc_table.c
++   rowlock_os_linux.c
++   rowlock_os_win.c
 +   rowlock_pager.c
 +   rowlock_savepoint.c
 +

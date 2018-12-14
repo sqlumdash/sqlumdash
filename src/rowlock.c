@@ -17,14 +17,20 @@ static u8 cachedRowidFlagGet(BtCursor *pCur);
 static int sqlite3BtreeLockTableForRowLock(Btree *p, int iTab, u8 isWriteLock);
 
 /* Launched when a signal is catched. */
+#if SQLITE_OS_WIN
 void rowlockSignalHandler(int signal){
+#else
+void rowlockSignalHandler(int signal, siginfo_t *info, void *ctx) {
+#endif
   switch( signal ){
     case SIGINT:
     case SIGILL: 
     case SIGFPE: 
     case SIGSEGV: 
     case SIGTERM: 
+#if SQLITE_OS_WIN
     case SIGBREAK: 
+#endif
     case SIGABRT:
       sqlite3rowlockIpcUnlockRecordProc(NULL);
       sqlite3rowlockIpcUnlockTablesProc(NULL);
@@ -35,22 +41,13 @@ void rowlockSignalHandler(int signal){
 
 /* Setting of signal handler */
 static int rowlockSetSignalAction(){
-  int signals[] = {SIGINT, SIGILL, SIGFPE, SIGSEGV, SIGTERM, SIGBREAK, SIGABRT};
-  int i;
+  int signals[] = {SIGINT, SIGILL, SIGFPE, SIGSEGV, SIGTERM, SIGABRT
 #if SQLITE_OS_WIN
-  void (*ret)(int);
-
-  for( i=0; i<sizeof(signals)/sizeof(int); i++){
-    ret = signal(signals[i], rowlockSignalHandler);
-    if( ret==SIG_ERR ){
-      return EXIT_FAILURE;
-    }
-  }
-  return EXIT_SUCCESS;
-#else
-#error "Not implemented"
-  /* Implement by using sigaction() */
+    ,SIGBREAK
 #endif
+  };
+
+  return rowlockOsSetSignalAction(signals, sizeof(signals)/sizeof(int), &rowlockSignalHandler);
 }
 
 /* 
@@ -84,15 +81,15 @@ BOOL WINAPI DllMain(HINSTANCE hInst, DWORD fdwReason, LPVOID lpvReserved){
   return TRUE;
 }
 #else
-__attribute__((constructor)) static void constructor()
-{
+__attribute__((constructor)) static void constructor(){
   sqlite3_enable_shared_cache(1);
-  return;
+  rowlockSetSignalAction();
 }
 
-__attribute__((destructor)) static void destructor()
-{
-  return;
+__attribute__((destructor)) static void destructor(){
+  sqlite3rowlockIpcUnlockRecordProc(NULL);
+  sqlite3rowlockIpcUnlockTablesProc(NULL);
+  sqlite3rowlockIpcCachedRowidReset(NULL);
 }
 #endif
 
@@ -374,7 +371,7 @@ static int transBtreeDropTable(Btree *p, int iTable){
     rc = sqlite3BtreeDropTableOriginal(pBtreeTrans, pRootPage->iDel, &iMoved);
   }
   /* Delete the mapping and Free memory in DROP table command.*/
-  pData = sqlite3HashI64Insert(&p->btTrans.rootPages, iTable, NULL);
+  pData = (TransRootPage*)sqlite3HashI64Insert(&p->btTrans.rootPages, iTable, NULL);
   sqlite3KeyInfoUnref(pData->pKeyInfo);
   sqlite3_free(pData);
   return rc;

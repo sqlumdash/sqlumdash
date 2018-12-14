@@ -11,23 +11,24 @@
 #include "sqliteInt.h"
 #include "rowlock_ipc.h"
 #include "rowlock_ipc_row.h"
+#include "rowlock_os.h"
 
 #if SQLITE_OS_WIN
-#include <windows.h>
-#define rowlockGetPid GetCurrentProcessId
-#define rowlockGetTid GetCurrentThreadId
+#define IpcRowLockMutex() &(pHandle->rlMutex)
 #else
-#define rowlockGetPid getpid
-#define rowlockGetTid gettid
-#endif
-
-#if SQLITE_OS_WIN
-#define IpcRowLockMutex() (HANDLE)pHandle->rlMutex
-#else
-#define IpcRowLockMutex() (pthread_mutex_t)(RowMetaData())->mutex
+#define IpcRowLockMutex() &(pMeta->mutex)
 #endif
 
 extern IpcClass ipcClasses[];
+
+u8 rowClassIsInitialized(void *pMap){
+  RowMetaData *pMeta = (RowMetaData*)pMap;
+  if( pMeta && pMeta->nElement>0 ){
+    return 1;
+  }else{
+    return 0;
+  }
+}
 
 void rowClassInitArea(void *pMap, u64 allocSize){
   RowMetaData *pMeta = (RowMetaData*)pMap;
@@ -73,9 +74,6 @@ void rowClassElemClear(void *pMap, u64 idx){
   pElem->owner = 0;
   pElem->pid = 0;
   pElem->rowid = 0;
-#ifndef NDEBUG
-  pElem->rid = 0;
-#endif
 }
 
 void rowClassElemCopy(void *pMap, u64 iDest, u64 iSrc){
@@ -88,9 +86,6 @@ void rowClassElemCopy(void *pMap, u64 iDest, u64 iSrc){
   pElemDest->owner = pElemSrc->owner;
   pElemDest->pid = pElemSrc->pid;
   pElemDest->rowid = pElemSrc->rowid;
-#ifndef NDEBUG
-  pElemDest->rid = pElemSrc->rid;
-#endif
 }
 
 u64 rowClassIndexPrev(void *pMap, u64 idx){
@@ -133,7 +128,7 @@ void rowClassPrintData(void *pMap){
   for( idx=0; idx<xClass->xElemCount(pMap); idx++ ){
     RowElement *pElem = (RowElement*)xClass->xElemGet(pMap, idx);
     int isLocked = (xClass->xElemIsValid(pElem))? 1:0;
-    printf("[%0lld]%d(%lld), ", idx, isLocked, pElem->rid);
+    printf("[%0lld]%d, ", idx, isLocked);
     if( (idx+1)%10==0 ) printf("\n");
   }
   printf("\n");
@@ -151,14 +146,6 @@ static void rowlockIpcRowValueSet(RowElement *pElement, u64 idx, u64 hash, PID p
   pElement[idx].rowid = rowid;
   pElement[idx].owner = owner;
 }
-
-#ifndef NDEBUG
-static void rowlockIpcRidSet(RowElement *pElement, u64 idx, i64 rid){
-  pElement[idx].rid = rid;
-}
-
-static i64 g_rid = 1;
-#endif
 
 /*
 ** Lock record.
@@ -181,7 +168,7 @@ int sqlite3rowlockIpcLockRecord(IpcHandle *pHandle, int iTable, i64 rowid){
   rowlockTarget.iTable = iTable;
   rowlockTarget.rowid = rowid;
 
-  rowlockIpcMutexLock(IpcRowLockMutex());
+  rowlockOsMutexEnter(IpcRowLockMutex());
 
   rc = rowlockIpcSearch(pHandle->pRecordLock, IPC_CLASS_ROW, &rowlockTarget, hash, &idx);
   if( rc ){
@@ -204,13 +191,10 @@ int sqlite3rowlockIpcLockRecord(IpcHandle *pHandle, int iTable, i64 rowid){
   /* If SQLITE_OK is returned, no one lock the record. So we can lock it. */
   rowlockIpcRowValueSet(pElement, idx, hash, pid, iTable, rowid, pHandle->owner);
   pMeta->count++;
-#ifndef NDEBUG
-  rowlockIpcRidSet(pElement, idx, g_rid);
-  g_rid++;
-#endif
 
 lock_record_end:
-  rowlockIpcMutexUnlock(IpcRowLockMutex());
+  rowlockOsMmapSync(pMap);
+  rowlockOsMutexLeave(IpcRowLockMutex());
   return rc;
 }
 
@@ -219,6 +203,7 @@ int sqlite3rowlockIpcLockRecordQuery(IpcHandle *pHandle, int iTable, i64 rowid){
   int rc = SQLITE_OK;
   IpcClass *xClass = &ipcClasses[IPC_CLASS_ROW];
   void *pMap = pHandle->pRecordLock;
+  RowMetaData *pMeta = (RowMetaData*)pMap;
   u64 hash = xClass->xCalcHash(pMap, iTable, rowid);
   RowElement rowlockTarget = {0};
   u64 idx;
@@ -228,9 +213,9 @@ int sqlite3rowlockIpcLockRecordQuery(IpcHandle *pHandle, int iTable, i64 rowid){
   rowlockTarget.iTable = iTable;
   rowlockTarget.rowid = rowid;
 
-  rowlockIpcMutexLock(IpcRowLockMutex());
+  rowlockOsMutexEnter(IpcRowLockMutex());
   rc = rowlockIpcSearch(pHandle->pRecordLock, IPC_CLASS_ROW, &rowlockTarget, hash, &idx);
-  rowlockIpcMutexUnlock(IpcRowLockMutex());
+  rowlockOsMutexLeave(IpcRowLockMutex());
 
   return rc;
 }
@@ -250,7 +235,7 @@ void sqlite3rowlockIpcUnlockRecord(IpcHandle *pHandle, int iTable, i64 rowid){
 
   assert( iTable!=0 );
 
-  rowlockIpcMutexLock(IpcRowLockMutex());
+  rowlockOsMutexEnter(IpcRowLockMutex());
 
   /* Search a deleting target */
   if( !xClass->xElemIsValid(xClass->xElemGet(pMap,hash)) ){
@@ -280,7 +265,8 @@ void sqlite3rowlockIpcUnlockRecord(IpcHandle *pHandle, int iTable, i64 rowid){
   pMeta->count--;
 
 unlock_record:
-  rowlockIpcMutexUnlock(IpcRowLockMutex());
+  rowlockOsMmapSync(pMap);
+  rowlockOsMutexLeave(IpcRowLockMutex());
 }
 
 /* 
@@ -311,10 +297,11 @@ static void sqlite3rowlockIpcUnlockRecordProcCore(IpcHandle *pHandle, PID pid){
     pHandle = &ipcHandle;
   }
 
-  rowlockIpcMutexLock(IpcRowLockMutex());
-
   pMap = pHandle->pRecordLock;
   pMeta = (RowMetaData*)pHandle->pRecordLock;
+
+  rowlockOsMutexEnter(IpcRowLockMutex());
+
   pElement = (RowElement*)((char*)pHandle->pRecordLock+sizeof(RowMetaData));
   nElem = xClass->xElemCount(pMap);
   if( nElem==0 ) goto unlock_record_proc_end;
@@ -345,19 +332,23 @@ static void sqlite3rowlockIpcUnlockRecordProcCore(IpcHandle *pHandle, PID pid){
   }while( idx!=idxStart );
 
 unlock_record_proc_end:
-  rowlockIpcMutexUnlock(IpcRowLockMutex());
+  rowlockOsMmapSync(pMap);
+  rowlockOsMutexLeave(IpcRowLockMutex());
 
   /* Close ipc handle if it was opend in this function. */
   if( ipcHandle.pRecordLock ){
     sqlite3rowlockIpcFinish(pHandle);
+    sqlite3rowlockIpcRemoveFile(MMAP_NAME_ROWLOCK);
   }
 }
 
+/* Unlock all lock information owned by this process. */
 void sqlite3rowlockIpcUnlockRecordProc(IpcHandle *pHandle){
   PID pid = rowlockGetPid();
   sqlite3rowlockIpcUnlockRecordProcCore(pHandle, pid);
 }
 
+/* Unlock all lock information regardless of owner. */
 void sqlite3rowlockIpcUnlockRecordAll(void){
   sqlite3rowlockIpcUnlockRecordProcCore(NULL, 0);
 }

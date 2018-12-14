@@ -16,9 +16,15 @@
 #include "Windows.h"
 #endif
 
+/* MMAP name */
+#define MMAP_NAME_ROWLOCK   "ROWLOCK_MAP"
+/* Mutex name */
+#define MUTEX_NAME_ROWLOCK   "ROWLOCK_MUTEX"
+
+
 typedef struct RowMetaData {
 #if SQLITE_OS_UNIX
-  pthread_mutex_t mutex;      /* Mutex is shared on Linux */
+  MUTEX_HANDLE mutex; /* Mutex is shared on Linux */
 #endif
   u64 nElement; /* The number of elements */
   u64 count;    /* The number of buckets */
@@ -30,12 +36,10 @@ typedef struct RowElement {
   i64 rowid;
   PID pid;
   u64 owner; /* The owner of this row lock. Having a lock if it is same as owner in IpcHandle. */
-#ifndef NDEBUG
-  i64 rid;
-#endif
 } RowElement;
 
 
+u8 rowClassIsInitialized(void *pMap);
 void rowClassInitArea(void *pMap, u64 allocSize);
 u64 rowClassElemCount(void *pMap);
 u8 rowClassIsValid(void *pElem);

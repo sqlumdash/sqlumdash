@@ -4,8 +4,8 @@
 ** Copyright (c) 2018 Toshiba Corporation
 **
 *************************************************************************
-** This file implements functions for shaing row lock information with 
-** the other processes.
+** This file implements functions for shaing lock information with the
+** other processes.
 */
 #ifndef SQLITE_OMIT_ROWLOCK
 #include "sqliteInt.h"
@@ -13,33 +13,14 @@
 #include "rowlock_ipc.h"
 #include "rowlock_ipc_table.h"
 #include "rowlock_ipc_row.h"
-
-#define MMAP_NAME_ROWLOCK "ROWLOCK_MAP"
-#define MMAP_NAME_TABLELOCK "TABLELOCK_MAP"
-
-#if SQLITE_OS_WIN
-#include <windows.h>
-#define MUTEX_NAME_ROWLOCK TEXT("ROWLOCK_MUTEX")
-#define MUTEX_NAME_TABLELOCK TEXT("TABLELOCK_MUTEX")
-#define rowlockGetPid GetCurrentProcessId
-#define rowlockGetTid GetCurrentThreadId
-#else
-#define rowlockGetPid getpid
-#define rowlockGetTid gettid
-#endif
-
-#if SQLITE_OS_WIN
-#define IpcRowLockMutex() (HANDLE)pHandle->rlMutex
-#else
-#define IpcRowLockMutex() (pthread_mutex_t)(RowMetaData())->rlMutex
-#endif
+#include "rowlock_os.h"
 
 #define NEXT_IDX(n) ((n + pMeta->nElement + 1) % pMeta->nElement)
 #define PREV_IDX(n) ((n + pMeta->nElement - 1) % pMeta->nElement)
 
 IpcClass ipcClasses[] = {
-  {rowClassInitArea, rowClassElemCount, rowClassIsValid, rowClassElemIsTarget, rowClassElemGet, rowClassElemHash, rowClassElemClear, rowClassElemCopy, rowClassIndexPrev, rowClassIndexNext, rowClassCalcHash},
-  {tableClassInitArea, tableClassElemCount, tableClassIsValid, tableClassElemIsTarget, tableClassElemGet, tableClassElemHash, tableClassElemClear, tableClassElemCopy, tableClassIndexPrev, tableClassIndexNext, tableClassCalcHash},
+  {rowClassIsInitialized, rowClassInitArea, rowClassElemCount, rowClassIsValid, rowClassElemIsTarget, rowClassElemGet, rowClassElemHash, rowClassElemClear, rowClassElemCopy, rowClassIndexPrev, rowClassIndexNext, rowClassCalcHash},
+  {tableClassIsInitialized, tableClassInitArea, tableClassElemCount, tableClassIsValid, tableClassElemIsTarget, tableClassElemGet, tableClassElemHash, tableClassElemClear, tableClassElemCopy, tableClassIndexPrev, tableClassIndexNext, tableClassCalcHash},
 };
 
 /**********************************************************************/
@@ -86,135 +67,30 @@ void sqlite3_rowlock_ipc_register_hash_func(int iClass, sqlite3_uint64(*xFunc)(v
 }
 /**********************************************************************/
 
-/*
-** Create recursive mutex. It is used when it refers a shared object of row lock.
-** On Windows, mutex handles are different values between proecesses. So it is stored in IpcHandle.
-** On Linux, mutex handles are same value between proecesses. So it is stored in RowMetaData.
-*/
-#if SQLITE_OS_WIN
-static int rowlockIpcMutexCreate(MUTEX_HANDLE *pMutex, LPCSTR name){
-  HANDLE mtx;
-  SECURITY_DESCRIPTOR secDesc;
-  SECURITY_ATTRIBUTES secAttr;
-
-  InitializeSecurityDescriptor(&secDesc,SECURITY_DESCRIPTOR_REVISION);
-  SetSecurityDescriptorDacl(&secDesc, TRUE, 0, FALSE);	    
-  secAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
-  secAttr.lpSecurityDescriptor = &secDesc;
-  secAttr.bInheritHandle = TRUE; 
-
-  mtx = CreateMutex(&secAttr, FALSE, name);
-  if( mtx==NULL ){
-    return SQLITE_ERROR;
-  }
-
-  *pMutex = mtx;
-#else
-static int rowlockIpcMutexCreate(MUTEX_HANDLE *pMutex){
-  int ret;
-  pthread_mutexattr_t mtxattr;
-
-  pthread_mutexattr_init(&mtxattr);
-
-  /* Enable to use mutex for sharing between processes */
-  ret = pthread_mutexattr_setpshared(&mtxattr, PTHREAD_PROCESS_SHARED);
-  if( ret!=0 ){
-    return SQLITE_ERROR;
-  }
-
-  *pMutex = PTHREAD_MUTEX_INITIALIZER;
-  pthread_mutex_init(pMutex, &mtxattr);
-#endif
-
-  return SQLITE_OK;
-}
-
-void rowlockIpcMutexLock(MUTEX_HANDLE mutex){
-#if SQLITE_OS_WIN
-  WaitForSingleObject(mutex, INFINITE);
-#else
-  pthread_mutex_lock(mutex);
-#endif
-}
-
-void rowlockIpcMutexUnlock(MUTEX_HANDLE mutex){
-#if SQLITE_OS_WIN
-  ReleaseMutex(mutex);
-#else
-  pthread_mutex_unlock(mutex);
-#endif
-}
-
-#if SQLITE_OS_WIN
-static int rowlockIpcCreate(u8 iClass, u64 allocSize, LPCSTR name, HANDLE *phMap, void **ppMap){
-  HANDLE hMap;
-#else
-static int rowlockIpcCreate(u8 iClass, u64 allocSize, char *name, void **ppMap){
-  int fd;
-#endif
-  IpcClass *xClass = &ipcClasses[iClass];
+static int rowlockIpcCreate(u8 iClass, u64 allocSize, char *name, MMAP_HANDLE *phMap, void **ppMap){
+  int rc = SQLITE_OK;
+  MMAP_HANDLE hMap;
   void *pMap = NULL;
-  int exists;
 
-#if SQLITE_OS_WIN
-  hMap = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, allocSize>>32, (DWORD)allocSize, name);
-  if( !hMap ) return SQLITE_CANTOPEN_BKPT;
+  IpcClass *xClass = &ipcClasses[iClass];
 
-  exists = (GetLastError() == ERROR_ALREADY_EXISTS);
+  rc = rowlockOsMmapOpen(allocSize, name, &hMap, &pMap);
+  if( rc ) return rc;
 
-  pMap = MapViewOfFile(hMap, FILE_MAP_WRITE, 0, 0, 0);
-  if( !pMap ){
-    CloseHandle(hMap);
-    return SQLITE_IOERR_SHMMAP;
-  }
-
-  *phMap = hMap;
-  *ppMap = pMap;
-#else
-#error not implemented
-  /* mutex */
-
-  /* Check file existence. */
-  if( !exists ){
-    fd = create
-    ret = lseek(fd, allocSize, SEEK_SET);
-    if( ret<0 ) return SQLITE_IOERR_SEEK;
-    ret = write(fd, &c, sizeof(char));
-    if( ret==-1 ) return SQLITE_IOERR_WRITE;
-  }else{
-    fd = open(name, O_RDWR, 0666);
-    if( fd<0 ) return SQLITE_CANTOPEN_BKPT;
-  }
-
-  pMap = mmap(NULL, allocSize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-  if( pMap==MAP_FAILED ){
-    close(fd);
-    return SQLITE_IOERR_SHMMAP;
-  }
-
-  *ppMap = pMap;
-#endif
-
-  if( !exists ){
+  if( !xClass->xIsInitialized(pMap) ){
     xClass->xInitArea(pMap, allocSize);
+    rowlockOsMmapSync(pMap);
   }
 
+  *ppMap = pMap;
+  *phMap = hMap;
   return SQLITE_OK;
 }
 
-#if SQLITE_OS_WIN
-static void rowlockIpcClose(HANDLE hMap, void *pMap, HANDLE hMutex){
-  if( pMap ) {
-    UnmapViewOfFile(pMap);
-    CloseHandle(hMap);
-  }
-  CloseHandle(hMutex);
+static void rowlockIpcClose(MMAP_HANDLE hMap, void *pMap, MUTEX_HANDLE *pMutex){
+  rowlockOsMutexClose(pMutex);
+  rowlockOsMmapClose(hMap, pMap);
 }
-#else
-static int rowlockIpcClose(){
-#error not implemented
-}
-#endif
 
 /*
 ** Initialize a shared object used by multi processes.
@@ -230,11 +106,12 @@ int sqlite3rowlockIpcInit(IpcHandle *pHandle, u64 nByteRow, u64 nByteTable, cons
   u64 nElemTable;
   u64 nAllocRow;
   u64 nAllocTable;
-#if SQLITE_OS_WIN
-  HANDLE hRecordLock = NULL, hTableLock = NULL;
-  void *pRecordLock = NULL, *pTableLock = NULL;
-  HANDLE rlMutex = NULL, tlMutex = NULL;
-#endif
+  MMAP_HANDLE hRecordLock = {0};
+  MMAP_HANDLE hTableLock = {0};
+  void *pRecordLock = NULL;
+  void *pTableLock = NULL;
+  MUTEX_HANDLE rlMutex = {0};
+  MUTEX_HANDLE tlMutex = {0};
 
   nElemRow = (nByteRow - sizeof(RowMetaData)) / sizeof(RowElement);
   nElemTable = (nByteTable - sizeof(TableMetaData)) / (sizeof(TableElement) + sizeof(CachedRowid));
@@ -242,48 +119,37 @@ int sqlite3rowlockIpcInit(IpcHandle *pHandle, u64 nByteRow, u64 nByteTable, cons
   nAllocRow = sizeof(RowMetaData) + sizeof(RowElement) * nElemRow;
   nAllocTable = sizeof(TableMetaData) + (sizeof(TableElement) + sizeof(CachedRowid)) * nElemTable;
 
-#if SQLITE_OS_WIN
-  rc = rowlockIpcCreate(IPC_CLASS_ROW, nAllocRow, TEXT(MMAP_NAME_ROWLOCK), &hRecordLock, &pRecordLock);
+  rc = rowlockIpcCreate(IPC_CLASS_ROW, nAllocRow, MMAP_NAME_ROWLOCK, &hRecordLock, &pRecordLock);
   if( rc ) return rc;
-  rc = rowlockIpcCreate(IPC_CLASS_TABLE, nAllocTable, TEXT(MMAP_NAME_TABLELOCK), &hTableLock, &pTableLock);
+  rc = rowlockIpcCreate(IPC_CLASS_TABLE, nAllocTable, MMAP_NAME_TABLELOCK, &hTableLock, &pTableLock);
   if( rc ) goto ipc_init_failed;
 
-  rc = rowlockIpcMutexCreate(&rlMutex, MUTEX_NAME_ROWLOCK);
+  rc = rowlockOsMutexOpen(MUTEX_NAME_ROWLOCK, &rlMutex);
   if( rc ) goto ipc_init_failed;
-  rc = rowlockIpcMutexCreate(&tlMutex, MUTEX_NAME_TABLELOCK);
+  rc = rowlockOsMutexOpen(MUTEX_NAME_TABLELOCK, &tlMutex);
   if( rc ) goto ipc_init_failed;
-#else
-#error not implemented
-
-  RowMetaData *pMeta = (RowMetaData*)pHandle->pRecordLock;
-  if( pMeta->nElement==0 ){
-    rc = rowlockIpcMutexCreate(&pMeta->rlMutex);
-    if( rc ) goto ipc_init_failed;
-  }
-  TableMetaData *pMeta = (TableMetaData*)pHandle->pTableLock;
-  if( pMeta->nElement==0 ){
-    rc = rowlockIpcMutexCreate(&pMeta->tlMutex);
-    if( rc ) goto ipc_init_failed;
-  }
-#endif
-
 
   /* Set output variable. */
   pHandle->pRecordLock = pRecordLock;
   pHandle->pTableLock = pTableLock; 
   pHandle->owner = (u64)owner;
-#if SQLITE_OS_WIN
   pHandle->hRecordLock = hRecordLock;
   pHandle->hTableLock = hTableLock;
-  pHandle->rlMutex = rlMutex;
-  pHandle->tlMutex = tlMutex;
+#if SQLITE_OS_WIN
+  memcpy(&pHandle->rlMutex, &rlMutex, sizeof(MUTEX_HANDLE));
+  memcpy(&pHandle->tlMutex, &tlMutex, sizeof(MUTEX_HANDLE));
+#else
+  memcpy(&((RowMetaData*)pRecordLock)->mutex, &rlMutex, sizeof(MUTEX_HANDLE));
+  memcpy(&((TableMetaData*)pTableLock)->mutex, &tlMutex, sizeof(MUTEX_HANDLE));
+  rowlockOsMmapSync(pRecordLock);
+  rowlockOsMmapSync(pTableLock);
 #endif
 
   return SQLITE_OK;
 
 ipc_init_failed:
-  rowlockIpcClose(hRecordLock, pRecordLock, rlMutex);
-  rowlockIpcClose(hTableLock, pTableLock, tlMutex);
+  rowlockIpcClose(hRecordLock, pRecordLock, &rlMutex);
+  rowlockIpcClose(hTableLock, pTableLock, &tlMutex);
   return rc;
 }
 
@@ -291,12 +157,22 @@ void sqlite3rowlockIpcFinish(IpcHandle *pHandle){
   sqlite3rowlockIpcUnlockRecordProc(pHandle);
   sqlite3rowlockIpcUnlockTablesProc(pHandle);
 #if SQLITE_OS_WIN
-  rowlockIpcClose(pHandle->hRecordLock, pHandle->pRecordLock, pHandle->rlMutex);
-  rowlockIpcClose(pHandle->hTableLock, pHandle->pTableLock, pHandle->tlMutex);
+  rowlockIpcClose(pHandle->hRecordLock, pHandle->pRecordLock, &pHandle->rlMutex);
+  rowlockIpcClose(pHandle->hTableLock, pHandle->pTableLock, &pHandle->tlMutex);
 #else
-#error not implemented
+  rowlockIpcClose(pHandle->hRecordLock, pHandle->pRecordLock, &((TableMetaData*)pHandle->pTableLock)->mutex);
+  rowlockIpcClose(pHandle->hTableLock, pHandle->pTableLock, &((RowMetaData*)pHandle->pRecordLock)->mutex);
 #endif
   memset(pHandle, 0, sizeof(IpcHandle));
+}
+
+/* Delete MMAP file if no other process opens it in Linux. */
+void sqlite3rowlockIpcRemoveFile(char *name){
+#if SQLITE_OS_UNIX
+  int user = OPEN_NONE;
+  int rc = rowlockOsFileUser(name, &user);
+  if( rc==SQLITE_OK && !(user&OPEN_OTHER)) unlink(name);
+#endif
 }
 
 /* Calculate hash value. */

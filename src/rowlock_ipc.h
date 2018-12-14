@@ -12,29 +12,27 @@
 #define SQLITE_ROWLOCK_IPC_H
 
 #include "sqliteInt.h"
-#if SQLITE_OS_WIN
-#include "Windows.h"
-typedef DWORD PID;
-typedef DWORD TID;
-#define THREAD_LOCAL __declspec(thread)
-typedef HANDLE MUTEX_HANDLE;
-#else
-typedef pid_t PID;
-typedef pid_t TID;
-#define THREAD_LOCAL __thread
-typedef pthread_mutex_t MUTEX_HANDLE;
-#endif
+#include "rowlock_os.h"
 
+/*
+** This structure is a handle to access MMAP.
+**
+** About mutex handle:
+** On Windows, mutex handles are different values between proecesses. 
+** So it is stored in this handle.
+** On Linux, mutex handles must be the value between proecesses.
+** So it is stored in MMAP area.
+*/
 typedef struct IpcHandle {
+  MMAP_HANDLE hRecordLock;
+  MMAP_HANDLE hTableLock;
 #if SQLITE_OS_WIN
-  HANDLE hRecordLock;
-  HANDLE hTableLock;
-  HANDLE rlMutex;
-  HANDLE tlMutex;
+  MUTEX_HANDLE rlMutex;
+  MUTEX_HANDLE tlMutex;
 #endif
   void *pRecordLock; /* RowMetaData + RowElement[] */
-  void *pTableLock;  /* CachedRowid[] */
-  u64 owner; /* Owner of the handle. The pointer of Btree is set. */
+  void *pTableLock;  /* TableMetaData + TableElement[] + CachedRowid[] */
+  u64 owner; /* Owner of the lock. The pointer of Btree is set. */
 } IpcHandle;
 
 
@@ -42,6 +40,7 @@ typedef struct IpcHandle {
 #define IPC_CLASS_TABLE 1
 
 typedef struct IpcClass{
+  u8 (*xIsInitialized)(void *pMap);
   void (*xInitArea)(void *pMap, u64 nElem);
   u64 (*xElemCount)(void *pMap);
   u8 (*xElemIsValid)(void *pElem);
@@ -58,14 +57,13 @@ typedef struct IpcClass{
 u64 rowlockIpcCalcHash(u64 nBucket, unsigned char *buf, u32 len);
 
 
-void rowlockIpcMutexLock(MUTEX_HANDLE mutex);
-void rowlockIpcMutexUnlock(MUTEX_HANDLE mutex);
 int rowlockIpcSearch(void *pMap, u8 iClass, void *pTarget, u64 hash, u64 *pIdx);
 void rowlockIpcDelete(void *pMap, u8 iClass, u64 idxStart, u64 idxDel, u64 idxEnd);
 
 
 int sqlite3rowlockIpcInit(IpcHandle *pHandle, u64 nByteRow, u64 nByteTable, const void *owner);
 void sqlite3rowlockIpcFinish(IpcHandle *pHandle);
+void sqlite3rowlockIpcRemoveFile(char *name);
 int sqlite3rowlockIpcLockRecord(IpcHandle *pHandle, int iTable, i64 rowid);
 int sqlite3rowlockIpcLockRecordQuery(IpcHandle *pHandle, int iTable, i64 rowid);
 void sqlite3rowlockIpcUnlockRecord(IpcHandle *pHandle, int iTable, i64 rowid);
