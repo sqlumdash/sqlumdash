@@ -1210,7 +1210,7 @@ diff -ru sqlite-src-3250000/src/vdbeapi.c SQLumDash3.25.0/src/vdbeapi.c
  
 diff -ru sqlite-src-3250000/src/vdbeaux.c SQLumDash3.25.0/src/vdbeaux.c
 --- sqlite-src-3250000/src/vdbeaux.c	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/src/vdbeaux.c	2018-09-26 12:01:23.000000000 +0900
++++ SQLumDash3.25.0/src/vdbeaux.c	2018-12-14 11:09:45.000000000 +0900
 @@ -14,6 +14,9 @@
  */
  #include "sqliteInt.h"
@@ -1221,6 +1221,15 @@ diff -ru sqlite-src-3250000/src/vdbeaux.c SQLumDash3.25.0/src/vdbeaux.c
  
  /*
  ** Create a new virtual database engine.
+@@ -2376,7 +2379,7 @@
+   */ 
+   for(i=0; rc==SQLITE_OK && i<db->nDb; i++){ 
+     Btree *pBt = db->aDb[i].pBt;
+-    if( sqlite3BtreeIsInTrans(pBt) ){
++    if( sqlite3BtreeIsInTransOriginal(pBt) ){
+       /* Whether or not a database might need a master journal depends upon
+       ** its journal mode (among other things).  This matrix determines which
+       ** journal modes use a master journal and which do not */
 @@ -2827,6 +2830,11 @@
            }
            rc = SQLITE_CONSTRAINT_FOREIGNKEY;

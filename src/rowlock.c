@@ -1726,11 +1726,13 @@ int sqlite3BtreeCachedRowidSetByOpenCursor(BtCursor *pCur){
 ** This is because it enables to begin a write transaction by multiple users. 
 ** Data insertion and deletion are operated for transaction btree. So we start only
 ** transaction btree's transaction.
+** But it returns an error if write transaction is required for read only database.
 */
 int sqlite3BtreeBeginTransAll(Btree *p, int wrflag, int *pSchemaVersion){
   int rc = SQLITE_OK;
 
   if( p->sharable ){
+    if( (p->pBt->btsFlags & BTS_READ_ONLY)!=0 && wrflag ) return SQLITE_READONLY;
     rc = sqlite3BtreeBeginTransOriginal(p, 0, pSchemaVersion);
   }else{
     rc = sqlite3BtreeBeginTransOriginal(p, wrflag, pSchemaVersion);
@@ -1767,13 +1769,17 @@ int sqlite3BtreeBeginTransForCommit(sqlite3 *db){
   int rc = SQLITE_OK;
   int i;
 
-  /* Begin write transaction for shared btree if only transaction btree is in transaction. */
+  /* 
+  ** Begin write transaction for shared btree if only transaction btree is in 
+  ** transaction and it is not read only database.
+  */
   for(i=0; rc==SQLITE_OK && i<db->nDb; i++){ 
     Btree *pBt = db->aDb[i].pBt;
     if( pBt && transBtreeIsUsed(pBt) && 
         sqlite3BtreeIsInTransOriginal(pBt->btTrans.pBtree) && 
         !sqlite3BtreeIsInTransOriginal(pBt) ){
-      rc = sqlite3BtreeBeginTransOriginal(pBt, 1, 0);
+      int readOnly = (pBt->pBt->btsFlags & BTS_READ_ONLY)==1;
+      rc = sqlite3BtreeBeginTransOriginal(pBt, !readOnly, 0);
     }
   }
   return rc;
@@ -2109,7 +2115,7 @@ int sqlite3TransBtreeCommit(Btree *p){
   BtCursor *pCur = NULL;
   HashElemI64 *elem = NULL;
 
-  if( !transBtreeIsUsed(p) ) return SQLITE_OK;
+  if( !transBtreeIsUsed(p) || (p->pBt->btsFlags & BTS_READ_ONLY)==1 ) return SQLITE_OK;
 
   /* Get EXCLSV_LOCK for modified tables in order to prevent from the table access by the other process. */
   rc = exclusiveLockTables(p);
