@@ -844,8 +844,11 @@ int sqlite3TransBtreeInsert(
     }
   }
 
-  /* We don't get a record lock for sqlite_sequence table which is used for auto-increment feature. */
-  if( !rowlockIsSequenceTable(pCur) ){
+  /*
+  ** We don't get a record lock for index and sqlite_sequence table. sqlite_sequence is used
+  ** for auto-increment feature.
+  */
+  if( !rowlockIsSequenceTable(pCur) && !pCur->pKeyInfo ){
     /* Lock record */
     rc = sqlite3rowlockIpcLockRecord(&pCur->pBtree->btTrans.ipcHandle, pCur->pgnoRoot, pX->nKey);
     if( rc==SQLITE_DONE ){
