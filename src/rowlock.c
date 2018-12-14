@@ -1684,14 +1684,12 @@ i64 sqlite3BtreeCachedRowidGet(BtCursor *pCur){
 ** Firstly, we read cached rowid which might be set by the other users.
 ** If it is set, we use it. If it is not set, we calculate it by moving
 ** cursor to the last and getting the largest rowid.
+** The cursor must belongs to shared btree.
 */
 int sqlite3BtreeCachedRowidSetByOpenCursor(BtCursor *pCur){
   int rc = SQLITE_OK;
   BtCursorTrans *pCurTrans = &pCur->btCurTrans;
   int res = 0;
-
-  /* This cursor must belongs to shared btree. */
-  assert(transBtreeIsUsed(pCur->pBtree));
 
   /* If it is a cursor of index, do nothing. */
   if( pCur->pKeyInfo ){
