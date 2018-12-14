@@ -8,6 +8,7 @@
 */
 #ifndef SQLITE_OMIT_ROWLOCK
 /* This file needs to be included into pager.c because Pager structure is defined that file. */
+#if defined(SQLUMDASH_INCLUDED_FROM_PAGER_C) || defined(SQLITE_AMALGAMATION)
 
 static int assert_pager_state_original(Pager *p);
 static int pager_write_pagelist_original(Pager *pPager, PgHdr *pList);
@@ -85,5 +86,5 @@ int rowlockPagerReloadDbPage(PgHdr *pPg, Pager *pPager){
   }
   return rc;
 }
-
-#endif
+#endif /* SQLUMDASH_INCLUDED_FROM_PAGER_C || SQLITE_AMALGAMATION */
+#endif /* SQLITE_OMIT_ROWLOCK */

@@ -414,7 +414,7 @@ diff -ru sqlite-src-3250000/src/alter.c SQLumDash3.25.0/src/alter.c
    return;
 diff -ru sqlite-src-3250000/src/btree.c SQLumDash3.25.0/src/btree.c
 --- sqlite-src-3250000/src/btree.c	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/src/btree.c	2018-09-26 12:01:22.000000000 +0900
++++ SQLumDash3.25.0/src/btree.c	2018-12-14 11:02:51.000000000 +0900
 @@ -165,7 +165,7 @@
  ** hold a write-lock on the schema table (root page 1). This is also
  ** acceptable.
@@ -630,13 +630,15 @@ diff -ru sqlite-src-3250000/src/btree.c SQLumDash3.25.0/src/btree.c
    BtShared *pBt = pBtree->pBt;
    int rc;                         /* Return code */
   
-@@ -10196,3 +10197,7 @@
+@@ -10196,3 +10197,9 @@
    return p->pBt->nRef;
  }
  #endif
 +
 +#ifndef SQLITE_AMALGAMATION
++#define SQLUMDASH_INCLUDED_FROM_BTREE_C
 +#include "rowlock_btree.c"
++#undef SQLUMDASH_INCLUDED_FROM_BTREE_C
 +#endif
 \ ファイル末尾に改行がありません
 diff -ru sqlite-src-3250000/src/btree.h SQLumDash3.25.0/src/btree.h
@@ -771,19 +773,21 @@ diff -ru sqlite-src-3250000/src/main.c SQLumDash3.25.0/src/main.c
      case SQLITE_CONFIG_SORTERREF_SIZE: {
 diff -ru sqlite-src-3250000/src/pager.c SQLumDash3.25.0/src/pager.c
 --- sqlite-src-3250000/src/pager.c	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/src/pager.c	2018-12-14 10:26:24.000000000 +0900
-@@ -848,6 +848,10 @@
++++ SQLumDash3.25.0/src/pager.c	2018-12-14 11:02:51.000000000 +0900
+@@ -848,6 +848,12 @@
  # define pagerBeginReadTransaction(z) SQLITE_OK
  #endif
  
 +#ifndef SQLITE_AMALGAMATION
++#define SQLUMDASH_INCLUDED_FROM_PAGER_C
 +#include "rowlock_pager.c"
++#undef SQLUMDASH_INCLUDED_FROM_PAGER_C
 +#endif
 +
  #ifndef NDEBUG 
  /*
  ** Usage:
-@@ -857,7 +861,8 @@
+@@ -857,7 +863,8 @@
  ** This function runs many asserts to try to find inconsistencies in
  ** the internal state of the Pager object.
  */
@@ -793,7 +797,7 @@ diff -ru sqlite-src-3250000/src/pager.c SQLumDash3.25.0/src/pager.c
    Pager *pPager = p;
  
    /* State must be valid. */
-@@ -3921,7 +3926,7 @@
+@@ -3921,7 +3928,7 @@
  */
  static int pager_wait_on_lock(Pager *pPager, int locktype){
    int rc;                              /* Return code */
@@ -802,7 +806,7 @@ diff -ru sqlite-src-3250000/src/pager.c SQLumDash3.25.0/src/pager.c
    /* Check that this is either a no-op (because the requested lock is 
    ** already held), or one of the transitions that the busy-handler
    ** may be invoked during, according to the comment above
-@@ -4397,7 +4402,8 @@
+@@ -4397,7 +4404,8 @@
  ** occurs, an IO error code is returned. Or, if the EXCLUSIVE lock cannot
  ** be obtained, SQLITE_BUSY is returned.
  */

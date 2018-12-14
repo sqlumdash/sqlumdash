@@ -8,6 +8,7 @@
 ** lock feature.
 */
 #ifndef SQLITE_OMIT_ROWLOCK
+#if defined(SQLUMDASH_INCLUDED_FROM_BTREE_C) || defined(SQLITE_AMALGAMATION)
 
 #ifdef SQLITE_DEBUG
 int hasSharedCacheTableLock(Btree *pBtree, Pgno iRoot, int isIndex, int eLockType){
@@ -26,8 +27,8 @@ int sqlite3BtreeOpen(sqlite3_vfs *pVfs, const char *zFilename, sqlite3 *db, Btre
 int sqlite3BtreeClose(Btree *p){
   return sqlite3BtreeCloseAll(p);
 }
-int sqlite3BtreeBeginTrans(Btree *p, int wrflag){
-  return sqlite3BtreeBeginTransAll(p, wrflag);
+int sqlite3BtreeBeginTrans(Btree *p, int wrflag, int *pSchemaVersion){
+  return sqlite3BtreeBeginTransAll(p, wrflag, pSchemaVersion);
 }
 int sqlite3BtreeRollback(Btree *p, int tripCode, int writeOnly){
   return sqlite3BtreeRollbackAll(p, tripCode, writeOnly);
@@ -49,6 +50,13 @@ int sqlite3BtreeCursorIsValid(BtCursor *pCur){
   return sqlite3BtreeCursorIsValidAll(pCur);
 }
 #endif
+
+#ifndef SQLITE_OMIT_WINDOWFUNC
+void sqlite3BtreeSkipNext(BtCursor *pCur){
+  sqlite3BtreeSkipNextAll(pCur);
+}
+#endif /* SQLITE_OMIT_WINDOWFUNC */
+
 i64 sqlite3BtreeIntegerKey(BtCursor *pCur){
   return sqlite3BtreeIntegerKeyAll(pCur);
 }
@@ -102,4 +110,5 @@ int restoreCursorPositionOriginal(BtCursor *pCur){
 void getCellInfoOriginal(BtCursor *pCur){
   getCellInfo(pCur);
 }
+#endif
 #endif
