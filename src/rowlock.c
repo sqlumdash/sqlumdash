@@ -13,6 +13,7 @@
 #include "rowlock.h"
 #include <signal.h>
 
+static u8 rowlockIsIndex(Btree *p, int rootPage);
 static u8 cachedRowidFlagGet(BtCursor *pCur);
 static int sqlite3BtreeLockTableForRowLock(Btree *p, int iTab, u8 isWriteLock);
 
@@ -395,7 +396,8 @@ int sqlite3BtreeDropTableAll(Btree *p, int iTable, int *piMoved){
   rc = sqlite3BtreeDropTableOriginal(p, iTable, piMoved);
   if( rc ) return rc;
 
-  if( transBtreeIsUsed(p) ){
+  /* Delete cachedRowid if it is a table. */
+  if( transBtreeIsUsed(p) && !rowlockIsIndex(p, iTable) ){
     sqlite3rowlockIpcCachedRowidDropTable(&p->btTrans.ipcHandle, iTable);
   }
 
