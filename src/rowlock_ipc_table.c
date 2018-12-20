@@ -583,6 +583,9 @@ void sqlite3rowlockIpcCachedRowidDropTable(IpcHandle *pHandle, int iTable){
     if( pCachedRowid[i].iTable==0 ) goto cached_rowid_drop_table_end;
   }
 
+  /* Do nothing if iTable not found in pCachedRowid. */
+  if( i==pMeta->nCache ) goto cached_rowid_drop_table_end;
+  
   /* Move the last element into deleted position. */
   iMove = pMeta->nCache - 1;
   pCachedRowid[iDel].iTable = pCachedRowid[iMove].iTable;
