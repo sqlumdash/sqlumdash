@@ -261,7 +261,6 @@ int sqlite3rowlockIpcLockTable(IpcHandle *pHandle, int iTable, u8 eLock, int mod
   if( prevLock ) *prevLock = pElement[iidx].eLock;
   rowlockIpcTableValueSet(pElement, iidx, hash, pid, iTable, pHandle->owner, eLock);
   pMeta->nLock++;
-printf("Incremented: %d\n", pMeta->nLock);
 
 lock_table_end:
   rowlockOsMmapSync(pMap);
@@ -405,7 +404,6 @@ static void sqlite3rowlockIpcUnlockTableCore(IpcHandle *pHandle, int iTable, int
   if( mode==MODE_UNLOCK_TRANS || pElement->eLock==READ_LOCK ){
     rowlockIpcDelete(pMap, IPC_CLASS_TABLE, hash, idxDel, xClass->xIndexPrev(pMap,idxEmpty));
     pMeta->nLock--;
-printf("Reduced: %d\n", pMeta->nLock);
   }else{
     pElement->inUse = 0;
   }
