@@ -63,7 +63,6 @@ void rowlockIpcDelete(void *pMap, u8 iClass, u64 idxStart, u64 idxDel, u64 idxEn
 
 int sqlite3rowlockIpcInit(IpcHandle *pHandle, u64 nByteRow, u64 nByteTable, const void *owner);
 void sqlite3rowlockIpcFinish(IpcHandle *pHandle);
-void sqlite3rowlockIpcRemoveFile(char *name);
 int sqlite3rowlockIpcLockRecord(IpcHandle *pHandle, int iTable, i64 rowid);
 int sqlite3rowlockIpcLockRecordQuery(IpcHandle *pHandle, int iTable, i64 rowid);
 void sqlite3rowlockIpcUnlockRecord(IpcHandle *pHandle, int iTable, i64 rowid);

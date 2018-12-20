@@ -38,7 +38,6 @@ u8 tableClassIsInitialized(void *pMap){
   }
 }
 
-
 void tableClassInitArea(void *pMap, u64 allocSize){
   u64 nElem = (allocSize - sizeof(TableMetaData)) / (sizeof(TableElement) + sizeof(CachedRowid));
   CachedRowid *pCachedRowid = (CachedRowid*)((char*)pMap + sizeof(TableMetaData) + sizeof(TableElement) * nElem);
@@ -644,7 +643,6 @@ cached_rowid_reset:
   /* Close ipc handle if it was opend in this function. */
   if( ipcHandle.pTableLock ){
     sqlite3rowlockIpcFinish(pHandle);
-    sqlite3rowlockIpcRemoveFile(MMAP_NAME_TABLELOCK);
   }
 }
 

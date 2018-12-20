@@ -90,7 +90,7 @@ int rowlockOsMutexHeld(MUTEX_HANDLE *pMutex){
 ** pUser is set the following flags.
 ** OPEN_NOME, OPEN_ME, OPEN_OTHER or OPEN_ME|OPEN_OTHER
 */
-int rowlockOsFileUser(const char *name, int *pUser){
+static int fileUser(const char *name, int *pUser){
   FILE *fd;
   char cmd[BUFSIZ] = {0};
   char buf[BUFSIZ] = {0};
@@ -236,7 +236,7 @@ void rowlockOsMmapClose(MMAP_HANDLE hMap, void *pMap){
 
   /* Delete MMAP file if no one opens it. */
   SET_MANAGEMENT_FILE_NAME(hMap.name, name);
-  rc = rowlockOsFileUser(name, &user);
+  rc = fileUser(name, &user);
   if( rc==SQLITE_OK && !(user&(OPEN_ME|OPEN_OTHER)) ){
     unlink(hMap.name);
     unlink(name);

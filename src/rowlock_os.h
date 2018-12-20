@@ -32,9 +32,6 @@ void rowlockOsMutexLeave(MUTEX_HANDLE *pMutex);
 #ifndef NDEBUG
 int rowlockOsMutexHeld(MUTEX_HANDLE *pMutex);
 #endif
-#if SQLITE_OS_UNIX
-int rowlockOsFileUser(const char *name, int *pUser);
-#endif
 int rowlockOsMmapOpen(u64 allocSize, char *name, MMAP_HANDLE *phMap, void **ppMap);
 void rowlockOsMmapClose(MMAP_HANDLE hMap, void *pMap);
 int rowlockOsMmapSync(void *pMap);

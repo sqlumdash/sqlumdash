@@ -338,7 +338,6 @@ unlock_record_proc_end:
   /* Close ipc handle if it was opend in this function. */
   if( ipcHandle.pRecordLock ){
     sqlite3rowlockIpcFinish(pHandle);
-    sqlite3rowlockIpcRemoveFile(MMAP_NAME_ROWLOCK);
   }
 }
 

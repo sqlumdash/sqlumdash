@@ -166,15 +166,6 @@ void sqlite3rowlockIpcFinish(IpcHandle *pHandle){
   memset(pHandle, 0, sizeof(IpcHandle));
 }
 
-/* Delete MMAP file if no other process opens it in Linux. */
-void sqlite3rowlockIpcRemoveFile(char *name){
-#if SQLITE_OS_UNIX
-  int user = OPEN_NONE;
-  int rc = rowlockOsFileUser(name, &user);
-  if( rc==SQLITE_OK && !(user&OPEN_OTHER)) unlink(name);
-#endif
-}
-
 /* Calculate hash value. */
 u64 rowlockIpcCalcHash(u64 nBucket, unsigned char *buf, u32 len){
   u64 h = 0;
