@@ -689,7 +689,7 @@ diff -ru sqlite-src-3250000/src/btree.h SQLumDash3.25.0/src/btree.h
  */
 diff -ru sqlite-src-3250000/src/btreeInt.h SQLumDash3.25.0/src/btreeInt.h
 --- sqlite-src-3250000/src/btreeInt.h	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/src/btreeInt.h	2018-10-17 13:39:31.000000000 +0900
++++ SQLumDash3.25.0/src/btreeInt.h	2018-12-20 13:19:11.000000000 +0900
 @@ -214,7 +214,9 @@
  **      *     zero or more pages numbers of leaves
  */
@@ -723,18 +723,18 @@ diff -ru sqlite-src-3250000/src/btreeInt.h SQLumDash3.25.0/src/btreeInt.h
  };
  
  /*
-@@ -524,6 +534,11 @@
-   struct KeyInfo *pKeyInfo;            /* Arg passed to comparison function */
-   MemPage *pPage;                        /* Current page */
-   MemPage *apPage[BTCURSOR_MAX_DEPTH-1]; /* Stack of parents of current page */
+@@ -508,6 +518,11 @@
+   Btree *pBtree;            /* The Btree to which this cursor belongs */
+   Pgno *aOverflow;          /* Cache of overflow page locations */
+   void *pKey;               /* Saved key that was cursor last known position */
 +#ifndef SQLITE_OMIT_ROWLOCK
 +  BtCursorTrans btCurTrans;
 +  i64 cachedRowid;
 +  u8 autoRowid;
 +#endif
- };
- 
- /*
+   /* All fields above are zeroed when the cursor is allocated.  See
+   ** sqlite3BtreeCursorZero().  Fields that follow must be manually
+   ** initialized. */
 diff -ru sqlite-src-3250000/src/build.c SQLumDash3.25.0/src/build.c
 --- sqlite-src-3250000/src/build.c	2018-09-15 20:35:52.000000000 +0900
 +++ SQLumDash3.25.0/src/build.c	2018-09-26 12:01:22.000000000 +0900
@@ -870,7 +870,7 @@ SQLumDash3.25.0/src のみに存在: rowlock_savepoint.c
 SQLumDash3.25.0/src のみに存在: rowlock_savepoint.h
 diff -ru sqlite-src-3250000/src/sqlite.h.in SQLumDash3.25.0/src/sqlite.h.in
 --- sqlite-src-3250000/src/sqlite.h.in	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/src/sqlite.h.in	2018-12-20 13:09:49.000000000 +0900
++++ SQLumDash3.25.0/src/sqlite.h.in	2018-12-20 13:22:07.000000000 +0900
 @@ -9281,6 +9281,39 @@
  # undef double
  #endif
