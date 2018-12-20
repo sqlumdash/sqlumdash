@@ -1,6 +1,6 @@
 diff -ru sqlite-src-3250000/Makefile.in SQLumDash3.25.0/Makefile.in
 --- sqlite-src-3250000/Makefile.in	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/Makefile.in	2018-12-20 11:00:01.000000000 +0900
++++ SQLumDash3.25.0/Makefile.in	2018-12-20 13:06:33.000000000 +0900
 @@ -69,6 +69,9 @@
  # 
  TLIBS = @LIBS@ $(LIBS)
@@ -175,7 +175,7 @@ diff -ru sqlite-src-3250000/Makefile.in SQLumDash3.25.0/Makefile.in
 +	$(TOP)/tool/rowlock_cleaner.c
 +
 +sqlumdash_cleaner:	 $(CLEANER_SRC) $(SQLITE3H)
-+	$(TCC) -o sqlumdash_cleaner -I$(TOP) -lpthread -lsqlite3 $(OPT_FEATURE_FLAGS) $(OPTS) $(CLEANER_SRC)
++	$(TCC) -o sqlumdash_cleaner -I$(TOP) -L.libs -lsqlite3 $(OPT_FEATURE_FLAGS) $(OPTS) $(CLEANER_SRC)
 +
  # Rules to build the extension objects.
  #
