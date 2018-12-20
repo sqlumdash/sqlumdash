@@ -527,7 +527,12 @@ int sqlite3rowlockIpcCachedRowidSet(IpcHandle *pHandle, int iTable, i64 rowid){
 
   for( i=0; i<pMeta->nElement; i++ ){
     if( pCachedRowid[i].iTable==iTable || pCachedRowid[i].iTable==0 ){
-      if( pCachedRowid[i].iTable==0 ) pMeta->nCache++;
+      if( pCachedRowid[i].iTable==0 ){
+        /* Add new entry. */
+        pMeta->nCache++;
+        assert( i+1==pMeta->nCache );
+      }
+      assert( i<pMeta->nCache );
       pCachedRowid[i].iTable = iTable;
       pCachedRowid[i].rowid = rowid;
       break;
