@@ -260,7 +260,7 @@ int sqlite3rowlockIpcLockTable(IpcHandle *pHandle, int iTable, u8 eLock, int mod
   /* If it reaches here, I can lock it. */
   if( prevLock ) *prevLock = pElement[iidx].eLock;
   rowlockIpcTableValueSet(pElement, iidx, hash, pid, iTable, pHandle->owner, eLock);
-  pMeta->nLock++;
+  if( found==0 ) pMeta->nLock++;
 
 lock_table_end:
   rowlockOsMutexLeave(IpcTableLockMutex());
