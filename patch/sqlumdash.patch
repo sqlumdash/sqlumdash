@@ -1,6 +1,6 @@
 diff -ru sqlite-src-3250000/Makefile.in SQLumDash3.25.0/Makefile.in
 --- sqlite-src-3250000/Makefile.in	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/Makefile.in	2018-12-14 10:34:09.000000000 +0900
++++ SQLumDash3.25.0/Makefile.in	2018-12-20 10:56:48.000000000 +0900
 @@ -69,6 +69,9 @@
  # 
  TLIBS = @LIBS@ $(LIBS)
@@ -11,6 +11,15 @@ diff -ru sqlite-src-3250000/Makefile.in SQLumDash3.25.0/Makefile.in
  # Flags controlling use of the in memory btree implementation
  #
  # SQLITE_TEMP_STORE is 0 to force temporary tables to be in a file, 1 to
+@@ -177,7 +180,7 @@
+          fts3_tokenize_vtab.lo \
+          fts3_unicode.lo fts3_unicode2.lo fts3_write.lo \
+ 	 fts5.lo \
+-         func.lo global.lo hash.lo \
++         func.lo funcNew.lo global.lo hash.lo \
+          icu.lo insert.lo json1.lo legacy.lo loadext.lo \
+          main.lo malloc.lo mem0.lo mem1.lo mem2.lo mem3.lo mem5.lo \
+          memdb.lo memjournal.lo \
 @@ -190,7 +193,9 @@
           update.lo upsert.lo util.lo vacuum.lo \
           vdbe.lo vdbeapi.lo vdbeaux.lo vdbeblob.lo vdbemem.lo vdbesort.lo \
@@ -118,7 +127,17 @@ diff -ru sqlite-src-3250000/Makefile.in SQLumDash3.25.0/Makefile.in
  
  Makefile: $(TOP)/Makefile.in
  	./config.status
-@@ -975,6 +1025,27 @@
+@@ -804,6 +854,9 @@
+ func.lo:	$(TOP)/src/func.c $(HDR)
+ 	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/func.c
+ 
++funcNew.lo:	$(TOP)/src/funcNew.c $(HDR)
++	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/funcNew.c
++
+ global.lo:	$(TOP)/src/global.c $(HDR)
+ 	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/global.c
+ 
+@@ -975,6 +1028,27 @@
  window.lo:	$(TOP)/src/window.c $(HDR)
  	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/window.c
  
@@ -146,7 +165,7 @@ diff -ru sqlite-src-3250000/Makefile.in SQLumDash3.25.0/Makefile.in
  tclsqlite.lo:	$(TOP)/src/tclsqlite.c $(HDR)
  	$(LTCOMPILE) -DUSE_TCL_STUBS=1 -c $(TOP)/src/tclsqlite.c
  
-@@ -1033,6 +1104,26 @@
+@@ -1033,6 +1107,26 @@
  
  
  
@@ -173,7 +192,7 @@ diff -ru sqlite-src-3250000/Makefile.in SQLumDash3.25.0/Makefile.in
  # Rules to build the extension objects.
  #
  icu.lo:	$(TOP)/ext/icu/icu.c $(HDR) $(EXTHDR)
-@@ -1390,6 +1481,8 @@
+@@ -1390,6 +1484,8 @@
  	rm -f sqldiff sqldiff.exe
  	rm -f dbhash dbhash.exe
  	rm -f fts5.* fts5parse.*
