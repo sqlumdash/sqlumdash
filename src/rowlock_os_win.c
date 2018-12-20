@@ -74,28 +74,55 @@ int rowlockOsMutexHeld(MUTEX_HANDLE *pMutex){
 }
 
 int rowlockOsMmapOpen(u64 allocSize, char *name, MMAP_HANDLE *phMap, void **ppMap){
-  HANDLE hMap;
+  int rc = SQLITE_OK;
+  MMAP_HANDLE hMap = {0};
+  int created = 0;
   void *pMap = NULL;
 
-  hMap = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, allocSize>>32, (DWORD)allocSize, name);
-  if( !hMap ) return SQLITE_CANTOPEN_BKPT;
+  hMap.hdlFile = CreateFile(name, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, 
+                     NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_RANDOM_ACCESS, NULL);
+  if( !hMap.hdlFile ) return SQLITE_CANTOPEN_BKPT;
 
-  pMap = MapViewOfFile(hMap, FILE_MAP_WRITE, 0, 0, 0);
-  if( !pMap ){
-    CloseHandle(hMap);
-    return SQLITE_IOERR_SHMMAP;
+  created = (GetLastError() != ERROR_ALREADY_EXISTS);
+
+  hMap.hdlMap = CreateFileMapping(hMap.hdlFile, NULL, PAGE_READWRITE, allocSize>>32, (DWORD)allocSize, name);
+  if( !hMap.hdlMap ){
+    rc = SQLITE_CANTOPEN_BKPT;
+    goto mmap_open_error;
   }
 
-  phMap->handle = hMap;
+  pMap = MapViewOfFile(hMap.hdlMap, FILE_MAP_WRITE, 0, 0, 0);
+  if( !pMap ){
+    rc =  SQLITE_IOERR_SHMMAP;
+    goto mmap_open_error;
+  }
+
+  /* Set output parameters. */
+  phMap->hdlFile = hMap.hdlFile;
+  phMap->hdlMap = hMap.hdlMap;
+  strcpy_s(phMap->name, sizeof(phMap->name), name);
   *ppMap = pMap;
 
   return SQLITE_OK;
+
+mmap_open_error:
+  rowlockOsMmapClose(hMap, pMap);
+  if( created ) DeleteFile(name);
+  return rc;
 }
 
 void rowlockOsMmapClose(MMAP_HANDLE hMap, void *pMap){
-  if( pMap ){
-    UnmapViewOfFile(pMap);
-    CloseHandle(hMap.handle);
+  if( pMap ) UnmapViewOfFile(pMap);
+  if( hMap.hdlMap ) CloseHandle(hMap.hdlMap);
+  if( hMap.hdlFile ) CloseHandle(hMap.hdlFile);
+  /*
+  ** Delete mapped file if no one opens it. DeleteFile fails 
+  ** if the file is opend by anyone. So we ignoew the error.
+  ** GetLastError() is called in order to reset the last error.
+  */
+  if( hMap.name[0]!=0 ){
+    DeleteFile(hMap.name);
+    GetLastError();
   }
 }
 

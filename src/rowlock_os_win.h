@@ -23,7 +23,9 @@ typedef struct MUTEX_HANDLE {
   int held; /* True if I have the mutex. */
 } MUTEX_HANDLE;
 typedef struct MMAP_HANDLE {
-  HANDLE handle;
+  HANDLE hdlFile;
+  HANDLE hdlMap;
+  char name[BUFSIZ];
 } MMAP_HANDLE;
 
 #define rowlockGetPid GetCurrentProcessId
