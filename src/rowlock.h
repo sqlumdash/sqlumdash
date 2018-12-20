@@ -152,6 +152,7 @@ int btreeMovetoOriginal(BtCursor *pCur, const void *pKey, i64 nKey, int bias, in
 int saveCursorPositionOriginal(BtCursor *pCur);
 int restoreCursorPositionOriginal(BtCursor *pCur);
 void getCellInfoOriginal(BtCursor *pCur);
+BtShared *sharedCacheListGet(void);
 
 void sqlite3SetForceCommit(sqlite3 *db);
 

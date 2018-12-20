@@ -29,6 +29,10 @@ extern IpcClass ipcClasses[];
 #define MODE_UNLOCK_TRANS 0
 #define MODE_UNLOCK_STMT  1
 
+void tableClassMapName(char *buf, int bufSize, const char *name){
+  xSnprintf(buf, bufSize, "%s%s", name, MMAP_SUFFIX_TABLELOCK);
+}
+
 u8 tableClassIsInitialized(void *pMap){
   TableMetaData *pMeta = (TableMetaData*)pMap;
   if( pMeta && pMeta->nElement>0 ){
@@ -257,6 +261,7 @@ int sqlite3rowlockIpcLockTable(IpcHandle *pHandle, int iTable, u8 eLock, int mod
   if( prevLock ) *prevLock = pElement[iidx].eLock;
   rowlockIpcTableValueSet(pElement, iidx, hash, pid, iTable, pHandle->owner, eLock);
   pMeta->nLock++;
+printf("Incremented: %d\n", pMeta->nLock);
 
 lock_table_end:
   rowlockOsMmapSync(pMap);
@@ -400,6 +405,7 @@ static void sqlite3rowlockIpcUnlockTableCore(IpcHandle *pHandle, int iTable, int
   if( mode==MODE_UNLOCK_TRANS || pElement->eLock==READ_LOCK ){
     rowlockIpcDelete(pMap, IPC_CLASS_TABLE, hash, idxDel, xClass->xIndexPrev(pMap,idxEmpty));
     pMeta->nLock--;
+printf("Reduced: %d\n", pMeta->nLock);
   }else{
     pElement->inUse = 0;
   }
@@ -430,7 +436,7 @@ void sqlite3rowlockIpcUnlockTableStmt(IpcHandle *pHandle, int iTable){
 ** Process ID=1, owner=0: Called by SQLite engine when dll is unloaded.
 ** Process ID=1, owner=1: Called by SQLite engine at transaction or statement is closing.
 */
-static void sqlite3rowlockIpcUnlockTablesProcCore(IpcHandle *pHandle, PID pid, int mode){
+static void sqlite3rowlockIpcUnlockTablesProcCore(IpcHandle *pHandle, PID pid, int mode, const char *name){
   IpcHandle ipcHandle = {0};
   IpcClass *xClass = &ipcClasses[IPC_CLASS_TABLE];
   void *pMap;
@@ -441,8 +447,9 @@ static void sqlite3rowlockIpcUnlockTablesProcCore(IpcHandle *pHandle, PID pid, i
   u64 idxStart;
 
   assert( pid!=0 || !pHandle );
+  assert( pHandle || name );
   if( !pHandle ){
-    int rc = sqlite3rowlockIpcInit(&ipcHandle, ROWLOCK_DEFAULT_MMAP_ROW_SIZE, ROWLOCK_DEFAULT_MMAP_TABLE_SIZE, NULL);
+    int rc = sqlite3rowlockIpcInit(&ipcHandle, ROWLOCK_DEFAULT_MMAP_ROW_SIZE, ROWLOCK_DEFAULT_MMAP_TABLE_SIZE, NULL, name);
     assert (rc==SQLITE_OK );
     pHandle = &ipcHandle;
   }
@@ -492,18 +499,18 @@ unlock_tables_proc_end:
   }
 }
 
-void sqlite3rowlockIpcUnlockTablesProc(IpcHandle *pHandle){
+void sqlite3rowlockIpcUnlockTablesProc(IpcHandle *pHandle, const char *name){
   PID procId = rowlockGetPid();
-  sqlite3rowlockIpcUnlockTablesProcCore(pHandle, procId, MODE_UNLOCK_TRANS);
+  sqlite3rowlockIpcUnlockTablesProcCore(pHandle, procId, MODE_UNLOCK_TRANS, name);
 }
 
-void sqlite3rowlockIpcUnlockTablesStmtProc(IpcHandle *pHandle){
+void sqlite3rowlockIpcUnlockTablesStmtProc(IpcHandle *pHandle, const char *name){
   PID procId = rowlockGetPid();
-  sqlite3rowlockIpcUnlockTablesProcCore(pHandle, procId, MODE_UNLOCK_STMT);
+  sqlite3rowlockIpcUnlockTablesProcCore(pHandle, procId, MODE_UNLOCK_STMT, name);
 }
 
-void sqlite3rowlockIpcUnlockTablesAll(void){
-  sqlite3rowlockIpcUnlockTablesProcCore(NULL, 0, MODE_UNLOCK_TRANS);
+void sqlite3rowlockIpcUnlockTablesAll(const char *name){
+  sqlite3rowlockIpcUnlockTablesProcCore(NULL, 0, MODE_UNLOCK_TRANS, name);
 }
 
 /************************************************/
@@ -590,7 +597,7 @@ cached_rowid_drop_table_end:
 }
 
 /* Reset CachedRowid if no one use the table. */
-void sqlite3rowlockIpcCachedRowidReset(IpcHandle *pHandle){
+void sqlite3rowlockIpcCachedRowidReset(IpcHandle *pHandle, const char *name){
   IpcHandle ipcHandle = {0};
   TableMetaData *pMeta;
   CachedRowid *pCachedRowid;
@@ -598,8 +605,9 @@ void sqlite3rowlockIpcCachedRowidReset(IpcHandle *pHandle){
   u64 iTail;
   u64 owner;
 
+  assert( pHandle || name );
   if( !pHandle ){
-    int rc = sqlite3rowlockIpcInit(&ipcHandle, ROWLOCK_DEFAULT_MMAP_ROW_SIZE, ROWLOCK_DEFAULT_MMAP_TABLE_SIZE, NULL);
+    int rc = sqlite3rowlockIpcInit(&ipcHandle, ROWLOCK_DEFAULT_MMAP_ROW_SIZE, ROWLOCK_DEFAULT_MMAP_TABLE_SIZE, NULL, name);
     assert (rc==SQLITE_OK );
     pHandle = &ipcHandle;
   }

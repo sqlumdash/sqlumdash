@@ -40,6 +40,7 @@ typedef struct IpcHandle {
 #define IPC_CLASS_TABLE 1
 
 typedef struct IpcClass{
+  void (*xMapName)(char *buf, int bufSize, const char *name);
   u8 (*xIsInitialized)(void *pMap);
   void (*xInitArea)(void *pMap, u64 nElem);
   u64 (*xElemCount)(void *pMap);
@@ -61,13 +62,13 @@ int rowlockIpcSearch(void *pMap, u8 iClass, void *pTarget, u64 hash, u64 *pIdx);
 void rowlockIpcDelete(void *pMap, u8 iClass, u64 idxStart, u64 idxDel, u64 idxEnd);
 
 
-int sqlite3rowlockIpcInit(IpcHandle *pHandle, u64 nByteRow, u64 nByteTable, const void *owner);
+int sqlite3rowlockIpcInit(IpcHandle *pHandle, u64 nByteRow, u64 nByteTable, const void *owner, const char *name);
 void sqlite3rowlockIpcFinish(IpcHandle *pHandle);
 int sqlite3rowlockIpcLockRecord(IpcHandle *pHandle, int iTable, i64 rowid);
 int sqlite3rowlockIpcLockRecordQuery(IpcHandle *pHandle, int iTable, i64 rowid);
 void sqlite3rowlockIpcUnlockRecord(IpcHandle *pHandle, int iTable, i64 rowid);
-void sqlite3rowlockIpcUnlockRecordProc(IpcHandle *pHandle);
-void sqlite3rowlockIpcUnlockRecordAll(void);
+void sqlite3rowlockIpcUnlockRecordProc(IpcHandle *pHandle, const char *name);
+void sqlite3rowlockIpcUnlockRecordAll(const char *name);
 
 /* Mode for sqlite3rowlockIpcUnlockTableCore() */
 #define MODE_LOCK_NORMAL 0
@@ -75,17 +76,17 @@ void sqlite3rowlockIpcUnlockRecordAll(void);
 #define MODE_LOCK_FORCE  2
 
 int sqlite3rowlockIpcLockTable(IpcHandle *pHandle, int iTable, u8 eLock, int mode, u8 *prevLock);
-void sqlite3rowlockIpcUnlockTablesStmtProc(IpcHandle *pHandle);
+void sqlite3rowlockIpcUnlockTablesStmtProc(IpcHandle *pHandle, const char *name);
 int sqlite3rowlockIpcTableDeletable(IpcHandle *pHandle, int iTable);
 u8 sqlite3rowlockIpcLockTableQuery(IpcHandle *pHandle, int iTable);
 void sqlite3rowlockIpcUnlockTable(IpcHandle *pHandle, int iTable);
-void sqlite3rowlockIpcUnlockTablesProc(IpcHandle *pHandle);
-void sqlite3rowlockIpcUnlockTablesAll(void);
+void sqlite3rowlockIpcUnlockTablesProc(IpcHandle *pHandle, const char *name);
+void sqlite3rowlockIpcUnlockTablesAll(const char *name);
 
 int sqlite3rowlockIpcCachedRowidSet(IpcHandle *pHandle, int iTable, i64 rowid);
 i64 sqlite3rowlockIpcCachedRowidGet(IpcHandle *pHandle, int iTable);
 void sqlite3rowlockIpcCachedRowidDropTable(IpcHandle *pHandle, int iTable);
-void sqlite3rowlockIpcCachedRowidReset(IpcHandle *pHandle);
+void sqlite3rowlockIpcCachedRowidReset(IpcHandle *pHandle, const char *name);
 
 #endif /* SQLITE_ROWLOCK_IPC_H */
 #endif /* SQLITE_OMIT_ROWLOCK */

@@ -16,6 +16,16 @@
 static u8 cachedRowidFlagGet(BtCursor *pCur);
 static int sqlite3BtreeLockTableForRowLock(Btree *p, int iTab, u8 isWriteLock);
 
+static void rowlockIpcCleanup(void){
+  BtShared *pBt;
+  for(pBt=sharedCacheListGet(); pBt; pBt=pBt->pNext){
+    const char *dbFullPath = sqlite3PagerFilename(pBt->pPager, 0);
+    sqlite3rowlockIpcUnlockRecordProc(NULL, dbFullPath);
+    sqlite3rowlockIpcUnlockTablesProc(NULL, dbFullPath);
+    sqlite3rowlockIpcCachedRowidReset(NULL, dbFullPath);
+  }
+}
+
 /* Launched when a signal is catched. */
 #if SQLITE_OS_WIN
 void rowlockSignalHandler(int signal){
@@ -32,9 +42,7 @@ void rowlockSignalHandler(int signal, siginfo_t *info, void *ctx) {
     case SIGBREAK: 
 #endif
     case SIGABRT:
-      sqlite3rowlockIpcUnlockRecordProc(NULL);
-      sqlite3rowlockIpcUnlockTablesProc(NULL);
-      sqlite3rowlockIpcCachedRowidReset(NULL);
+      rowlockIpcCleanup();
       break;
   }
 }
@@ -72,9 +80,7 @@ BOOL WINAPI DllMain(HINSTANCE hInst, DWORD fdwReason, LPVOID lpvReserved){
       break;
     /* DLL is unloaded */
     case DLL_PROCESS_DETACH:
-      sqlite3rowlockIpcUnlockRecordProc(NULL);
-      sqlite3rowlockIpcUnlockTablesProc(NULL);
-      sqlite3rowlockIpcCachedRowidReset(NULL);
+      rowlockIpcCleanup();
       break;
   }
 
@@ -87,9 +93,7 @@ __attribute__((constructor)) static void constructor(){
 }
 
 __attribute__((destructor)) static void destructor(){
-  sqlite3rowlockIpcUnlockRecordProc(NULL);
-  sqlite3rowlockIpcUnlockTablesProc(NULL);
-  sqlite3rowlockIpcCachedRowidReset(NULL);
+  rowlockIpcCleanup();
 }
 #endif
 
@@ -153,6 +157,7 @@ static int sqlite3TransBtreeOpen(
     SQLITE_OPEN_TEMP_DB |
     SQLITE_OPEN_MEMORY;
   BtreeTrans *pBtTrans = &pBtree->btTrans;
+  const char *dbFullPath;
 
   /*
   ** Only main database should manage data in transaction btree.
@@ -171,7 +176,8 @@ static int sqlite3TransBtreeOpen(
   /* Initialize BtreeTrans members. */
   rc = sqlite3rowlockSavepointInit(&pBtTrans->lockSavepoint);
   if( rc ) goto trans_btree_open_failed;
-  rc = sqlite3rowlockIpcInit(&pBtTrans->ipcHandle, sqlite3GlobalConfig.szMmapRowLock, sqlite3GlobalConfig.szMmapTableLock, pBtree);
+  dbFullPath = sqlite3PagerFilename(pBtree->pBt->pPager, 0);
+  rc = sqlite3rowlockIpcInit(&pBtTrans->ipcHandle, sqlite3GlobalConfig.szMmapRowLock, sqlite3GlobalConfig.szMmapTableLock, pBtree, dbFullPath);
   if( rc ) goto trans_btree_open_failed;
 
   pBtTrans->pBtree = pBtreeTrans;
@@ -1469,9 +1475,9 @@ static void sqlite3TransBtreeRollback(Btree *p, int tripCode, int writeOnly){
     BtreeTrans *pBtTrans = &p->btTrans;
     sqlite3BtreeRollbackOriginal(pBtTrans->pBtree, tripCode, writeOnly);
     transRootPagesFinish(&pBtTrans->rootPages);
-    sqlite3rowlockIpcUnlockRecordProc(&pBtTrans->ipcHandle);
-    sqlite3rowlockIpcUnlockTablesProc(&pBtTrans->ipcHandle);
-    sqlite3rowlockIpcCachedRowidReset(&pBtTrans->ipcHandle);
+    sqlite3rowlockIpcUnlockRecordProc(&pBtTrans->ipcHandle, NULL);
+    sqlite3rowlockIpcUnlockTablesProc(&pBtTrans->ipcHandle, NULL);
+    sqlite3rowlockIpcCachedRowidReset(&pBtTrans->ipcHandle, NULL);
     sqlite3TransBtreeSavepoint(p, tripCode, 0);
   }
 }
@@ -1792,7 +1798,7 @@ void sqlite3BtreeUnlockStmtTableLock(sqlite3 *db){
   for(i=0; i<db->nDb; i++){ 
     Btree *pBt = db->aDb[i].pBt;
     if( pBt && transBtreeIsUsed(pBt) ){
-      sqlite3rowlockIpcUnlockTablesStmtProc(&pBt->btTrans.ipcHandle);
+      sqlite3rowlockIpcUnlockTablesStmtProc(&pBt->btTrans.ipcHandle, NULL);
     }
   }
 }

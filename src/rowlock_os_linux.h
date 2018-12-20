@@ -31,6 +31,7 @@ typedef struct MMAP_HANDLE {
 /* The suffix of MMAP management file. */
 #define MMAP_MNG_FILE_SUFFIX "_MNG"
 
+#define xSnprintf snprintf
 #define rowlockGetPid getpid
 #define rowlockGetTid gettid
 

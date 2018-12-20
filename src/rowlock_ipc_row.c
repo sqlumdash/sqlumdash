@@ -21,6 +21,10 @@
 
 extern IpcClass ipcClasses[];
 
+void rowClassMapName(char *buf, int bufSize, const char *name){
+  xSnprintf(buf, bufSize, "%s%s", name, MMAP_SUFFIX_ROWLOCK);
+}
+
 u8 rowClassIsInitialized(void *pMap){
   RowMetaData *pMeta = (RowMetaData*)pMap;
   if( pMeta && pMeta->nElement>0 ){
@@ -279,7 +283,7 @@ unlock_record:
 ** Process ID=1, owner=0: Called by SQLite engine when dll is unloaded.
 ** Process ID=1, owner=1: Called by SQLite engine at transaction or statement is closing.
 */
-static void sqlite3rowlockIpcUnlockRecordProcCore(IpcHandle *pHandle, PID pid){
+static void sqlite3rowlockIpcUnlockRecordProcCore(IpcHandle *pHandle, PID pid, const char *name){
   IpcHandle ipcHandle = {0};
   IpcClass *xClass = &ipcClasses[IPC_CLASS_ROW];
   void *pMap;
@@ -290,9 +294,10 @@ static void sqlite3rowlockIpcUnlockRecordProcCore(IpcHandle *pHandle, PID pid){
   u64 idxStart;
 
   assert( pid!=0 || !pHandle );
-  
+  assert( pHandle || name );
+
   if( !pHandle ){
-    int rc = sqlite3rowlockIpcInit(&ipcHandle, ROWLOCK_DEFAULT_MMAP_ROW_SIZE, ROWLOCK_DEFAULT_MMAP_TABLE_SIZE, NULL);
+    int rc = sqlite3rowlockIpcInit(&ipcHandle, ROWLOCK_DEFAULT_MMAP_ROW_SIZE, ROWLOCK_DEFAULT_MMAP_TABLE_SIZE, NULL, name);
     assert (rc==SQLITE_OK );
     pHandle = &ipcHandle;
   }
@@ -342,13 +347,13 @@ unlock_record_proc_end:
 }
 
 /* Unlock all lock information owned by this process. */
-void sqlite3rowlockIpcUnlockRecordProc(IpcHandle *pHandle){
+void sqlite3rowlockIpcUnlockRecordProc(IpcHandle *pHandle, const char *name){
   PID pid = rowlockGetPid();
-  sqlite3rowlockIpcUnlockRecordProcCore(pHandle, pid);
+  sqlite3rowlockIpcUnlockRecordProcCore(pHandle, pid, name);
 }
 
 /* Unlock all lock information regardless of owner. */
-void sqlite3rowlockIpcUnlockRecordAll(void){
-  sqlite3rowlockIpcUnlockRecordProcCore(NULL, 0);
+void sqlite3rowlockIpcUnlockRecordAll(const char *name){
+  sqlite3rowlockIpcUnlockRecordProcCore(NULL, 0, name);
 }
 #endif /* SQLITE_OMIT_ROWLOCK */

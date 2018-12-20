@@ -19,14 +19,23 @@
 #define PREV_IDX(n) ((n + pMeta->nElement - 1) % pMeta->nElement)
 
 IpcClass ipcClasses[] = {
-  {rowClassIsInitialized, rowClassInitArea, rowClassElemCount, rowClassIsValid, rowClassElemIsTarget, rowClassElemGet, rowClassElemHash, rowClassElemClear, rowClassElemCopy, rowClassIndexPrev, rowClassIndexNext, rowClassCalcHash},
-  {tableClassIsInitialized, tableClassInitArea, tableClassElemCount, tableClassIsValid, tableClassElemIsTarget, tableClassElemGet, tableClassElemHash, tableClassElemClear, tableClassElemCopy, tableClassIndexPrev, tableClassIndexNext, tableClassCalcHash},
+  {rowClassMapName, rowClassIsInitialized, rowClassInitArea, rowClassElemCount, rowClassIsValid, rowClassElemIsTarget, rowClassElemGet, rowClassElemHash, rowClassElemClear, rowClassElemCopy, rowClassIndexPrev, rowClassIndexNext, rowClassCalcHash},
+  {tableClassMapName, tableClassIsInitialized, tableClassInitArea, tableClassElemCount, tableClassIsValid, tableClassElemIsTarget, tableClassElemGet, tableClassElemHash, tableClassElemClear, tableClassElemCopy, tableClassIndexPrev, tableClassIndexNext, tableClassCalcHash},
 };
+
+/* For cleanup tool */
+void sqlite3_rowlock_ipc_unlock_record_all(const char *name){
+  sqlite3rowlockIpcUnlockRecordAll(name);
+}
+
+void sqlite3_rowlock_ipc_unlock_tables_all(const char *name){
+  sqlite3rowlockIpcUnlockTablesAll(name);
+}
 
 /**********************************************************************/
 /* For testing */
-int sqlite3_rowlock_ipc_init(IpcHandle *pHandle, sqlite3_uint64 nByteRow, sqlite3_uint64 nByteTable, const void *owner){
-  return sqlite3rowlockIpcInit(pHandle, nByteRow, nByteTable, owner);
+int sqlite3_rowlock_ipc_init(IpcHandle *pHandle, sqlite3_uint64 nByteRow, sqlite3_uint64 nByteTable, const void *owner, const char *name){
+  return sqlite3rowlockIpcInit(pHandle, nByteRow, nByteTable, owner, name);
 }
 
 void sqlite3_rowlock_ipc_finish(IpcHandle *pHandle){
@@ -41,8 +50,8 @@ void sqlite3_rowlock_ipc_unlock_record(IpcHandle *pHandle, int iTable, sqlite3_i
   sqlite3rowlockIpcUnlockRecord(pHandle, iTable, rowid);
 }
 
-void sqlite3_rowlock_ipc_unlock_record_proc(IpcHandle *pHandle){
-  sqlite3rowlockIpcUnlockRecordProc(pHandle);
+void sqlite3_rowlock_ipc_unlock_record_proc(IpcHandle *pHandle, const char *name){
+  sqlite3rowlockIpcUnlockRecordProc(pHandle, name);
 }
 
 int sqlite3_rowlock_ipc_lock_table(IpcHandle *pHandle, int iTable, unsigned char eLock, unsigned char *prevLock){
@@ -66,6 +75,17 @@ void sqlite3_rowlock_ipc_register_hash_func(int iClass, sqlite3_uint64(*xFunc)(v
   }
 }
 /**********************************************************************/
+
+static void rowlockIpcMapName(u8 iClass, char *buf, int bufSize, const char *name){
+  IpcClass *xClass = &ipcClasses[iClass];
+  char fullPath[BUFSIZ] = {0};
+  int rc;
+  sqlite3_vfs *pVfs = sqlite3_vfs_find(0);
+
+  rc = sqlite3OsFullPathname(pVfs, name, sizeof(fullPath), fullPath);
+  assert( rc==SQLITE_OK );
+  xClass->xMapName(buf, bufSize, fullPath);
+}
 
 static int rowlockIpcCreate(u8 iClass, u64 allocSize, char *name, MMAP_HANDLE *phMap, void **ppMap){
   int rc = SQLITE_OK;
@@ -94,39 +114,54 @@ static void rowlockIpcClose(MMAP_HANDLE hMap, void *pMap, MUTEX_HANDLE *pMutex){
 
 /*
 ** Initialize a shared object used by multi processes.
-** nByte: the maximum memory allocation size in byte.
-** Shared object consists of RowElementMeta and an array of RowElement structure.
-** [RowElementMeta][RowElement(0)][RowElement(1)]...[RowElement(nElement-1)]
-** "owner" is used to specify the lock owner in the same process and thread.
-** pBtree is set to "owner" when sqlite3rowlockIpcLockRecord() is called by SQLite engine.
+** nByteRow:
+**   The maximum memory allocation size in byte about mapped file for rowlock.
+** nBytetable:
+**   The maximum memory allocation size in byte about mapped file for tablelock and cachedRowid.
+** owner:
+**   It is used to identify the lock owner in the same process and thread.
+**   pBtree is set to "owner" when sqlite3rowlockIpcLockRecord() is called by SQLite engine.
+** name:
+**  It is used for mapped filed name and mutext name with suffix. SQLite engine specifies DB full path. 
 */
-int sqlite3rowlockIpcInit(IpcHandle *pHandle, u64 nByteRow, u64 nByteTable, const void *owner){
+int sqlite3rowlockIpcInit(IpcHandle *pHandle, u64 nByteRow, u64 nByteTable, const void *owner, const char *name){
   int rc;
   u64 nElemRow;
   u64 nElemTable;
   u64 nAllocRow;
   u64 nAllocTable;
+  char mapNameRow[BUFSIZ] = {0};
+  char mapNameTable[BUFSIZ] = {0};
   MMAP_HANDLE hRecordLock = {0};
   MMAP_HANDLE hTableLock = {0};
   void *pRecordLock = NULL;
   void *pTableLock = NULL;
+  char mtxNameRow[BUFSIZ] = {0};
+  char mtxNameTable[BUFSIZ] = {0};
   MUTEX_HANDLE rlMutex = {0};
   MUTEX_HANDLE tlMutex = {0};
 
+  /* Open MMAP. */
   nElemRow = (nByteRow - sizeof(RowMetaData)) / sizeof(RowElement);
   nElemTable = (nByteTable - sizeof(TableMetaData)) / (sizeof(TableElement) + sizeof(CachedRowid));
 
   nAllocRow = sizeof(RowMetaData) + sizeof(RowElement) * nElemRow;
   nAllocTable = sizeof(TableMetaData) + (sizeof(TableElement) + sizeof(CachedRowid)) * nElemTable;
 
-  rc = rowlockIpcCreate(IPC_CLASS_ROW, nAllocRow, MMAP_NAME_ROWLOCK, &hRecordLock, &pRecordLock);
+  rowlockIpcMapName(IPC_CLASS_ROW, mapNameRow, sizeof(mapNameRow), name);
+  rowlockIpcMapName(IPC_CLASS_TABLE, mapNameTable, sizeof(mapNameTable), name);
+  rc = rowlockIpcCreate(IPC_CLASS_ROW, nAllocRow, mapNameRow, &hRecordLock, &pRecordLock);
   if( rc ) return rc;
-  rc = rowlockIpcCreate(IPC_CLASS_TABLE, nAllocTable, MMAP_NAME_TABLELOCK, &hTableLock, &pTableLock);
+  rc = rowlockIpcCreate(IPC_CLASS_TABLE, nAllocTable, mapNameTable, &hTableLock, &pTableLock);
   if( rc ) goto ipc_init_failed;
 
-  rc = rowlockOsMutexOpen(MUTEX_NAME_ROWLOCK, &rlMutex);
+  /* Open mutex. */
+  xSnprintf(mtxNameRow, sizeof(mtxNameRow), "%s%s", name, MUTEX_SUFFIX_ROWLOCK);
+  xSnprintf(mtxNameTable, sizeof(mtxNameTable), "%s%s", name, MUTEX_SUFFIX_TABLELOCK);
+
+  rc = rowlockOsMutexOpen(mtxNameRow, &rlMutex);
   if( rc ) goto ipc_init_failed;
-  rc = rowlockOsMutexOpen(MUTEX_NAME_TABLELOCK, &tlMutex);
+  rc = rowlockOsMutexOpen(mtxNameTable, &tlMutex);
   if( rc ) goto ipc_init_failed;
 
   /* Set output variable. */
@@ -154,8 +189,8 @@ ipc_init_failed:
 }
 
 void sqlite3rowlockIpcFinish(IpcHandle *pHandle){
-  sqlite3rowlockIpcUnlockRecordProc(pHandle);
-  sqlite3rowlockIpcUnlockTablesProc(pHandle);
+  sqlite3rowlockIpcUnlockRecordProc(pHandle, NULL);
+  sqlite3rowlockIpcUnlockTablesProc(pHandle, NULL);
 #if SQLITE_OS_WIN
   rowlockIpcClose(pHandle->hRecordLock, pHandle->pRecordLock, &pHandle->rlMutex);
   rowlockIpcClose(pHandle->hTableLock, pHandle->pTableLock, &pHandle->tlMutex);

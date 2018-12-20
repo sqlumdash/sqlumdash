@@ -31,10 +31,25 @@ int rowlockOsSetSignalAction(int *signals, int nSignal, void *action){
   return EXIT_SUCCESS;
 }
 
-int rowlockOsMutexOpen(char *name, MUTEX_HANDLE *pMutex){
+/*
+** Windows does not allow to use a string inclugin '\' as a mutex name.
+** The name given to rowlockOsMutexOpen() is a database file path which 
+** might includes '\'. So this function replaces '\' to '_'.
+** The memory of 2nd argument 'pOut' must be allocated outside of this 
+** function.
+*/
+static void createMutexName(const char *pIn, char *pOut){
+  int i = 0;
+  for(; pIn[i]!='\0'; i++ ){
+    pOut[i] = (pIn[i]=='\\') ? '_' : pIn[i];
+  }
+}
+
+int rowlockOsMutexOpen(const char *name, MUTEX_HANDLE *pMutex){
   HANDLE mtx;
   SECURITY_DESCRIPTOR secDesc;
   SECURITY_ATTRIBUTES secAttr;
+  char mtxName[BUFSIZ] = {0};
 
   InitializeSecurityDescriptor(&secDesc,SECURITY_DESCRIPTOR_REVISION);
   SetSecurityDescriptorDacl(&secDesc, TRUE, 0, FALSE);	    
@@ -42,10 +57,9 @@ int rowlockOsMutexOpen(char *name, MUTEX_HANDLE *pMutex){
   secAttr.lpSecurityDescriptor = &secDesc;
   secAttr.bInheritHandle = TRUE; 
 
-  mtx = CreateMutex(&secAttr, FALSE, TEXT(name));
-  if( mtx==NULL ){
-    return SQLITE_ERROR;
-  }
+  createMutexName(name, mtxName);
+  mtx = CreateMutex(&secAttr, FALSE, TEXT(mtxName));
+  if( mtx==NULL ) return SQLITE_ERROR;
 
   pMutex->handle = mtx;
   pMutex->held = 0;
@@ -73,7 +87,7 @@ int rowlockOsMutexHeld(MUTEX_HANDLE *pMutex){
   return pMutex->held;
 }
 
-int rowlockOsMmapOpen(u64 allocSize, char *name, MMAP_HANDLE *phMap, void **ppMap){
+int rowlockOsMmapOpen(u64 allocSize, const char *name, MMAP_HANDLE *phMap, void **ppMap){
   int rc = SQLITE_OK;
   MMAP_HANDLE hMap = {0};
   int created = 0;
@@ -85,7 +99,7 @@ int rowlockOsMmapOpen(u64 allocSize, char *name, MMAP_HANDLE *phMap, void **ppMa
 
   created = (GetLastError() != ERROR_ALREADY_EXISTS);
 
-  hMap.hdlMap = CreateFileMapping(hMap.hdlFile, NULL, PAGE_READWRITE, allocSize>>32, (DWORD)allocSize, name);
+  hMap.hdlMap = CreateFileMapping(hMap.hdlFile, NULL, PAGE_READWRITE, allocSize>>32, (DWORD)allocSize, NULL);
   if( !hMap.hdlMap ){
     rc = SQLITE_CANTOPEN_BKPT;
     goto mmap_open_error;

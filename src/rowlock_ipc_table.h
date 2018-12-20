@@ -16,10 +16,10 @@
 #include "Windows.h"
 #endif
 
-/* MMAP name */
-#define MMAP_NAME_TABLELOCK "TABLELOCK_MAP"
-/* Mutex name */
-#define MUTEX_NAME_TABLELOCK "TABLELOCK_MUTEX"
+/* MMAP name's suffix */
+#define MMAP_SUFFIX_TABLELOCK "-tablelock"
+/* Mutex name's suffix */
+#define MUTEX_SUFFIX_TABLELOCK "-tablelock-mutex"
 
 
 typedef struct TableMetaData {
@@ -45,6 +45,7 @@ typedef struct CachedRowid {
   i64 rowid;
 } CachedRowid;
 
+void tableClassMapName(char *buf, int bufSize, const char *name);
 u8 tableClassIsInitialized(void *pMap);
 void tableClassInitArea(void *pMap, u64 nElem);
 u64 tableClassElemCount(void *pMap);

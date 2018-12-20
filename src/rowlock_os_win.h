@@ -28,6 +28,7 @@ typedef struct MMAP_HANDLE {
   char name[BUFSIZ];
 } MMAP_HANDLE;
 
+#define xSnprintf sprintf_s
 #define rowlockGetPid GetCurrentProcessId
 #define rowlockGetTid GetCurrentThreadId
 

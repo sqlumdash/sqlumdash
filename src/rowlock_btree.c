@@ -110,5 +110,9 @@ int restoreCursorPositionOriginal(BtCursor *pCur){
 void getCellInfoOriginal(BtCursor *pCur){
   getCellInfo(pCur);
 }
+
+BtShared *sharedCacheListGet(void){
+  return GLOBAL(BtShared*,sqlite3SharedCacheList);
+}
 #endif
 #endif

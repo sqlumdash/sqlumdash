@@ -41,7 +41,7 @@ int rowlockOsSetSignalAction(int *signals, int nSignal, void *action){
   return EXIT_SUCCESS;
 }
 
-int rowlockOsMutexOpen(char *name, MUTEX_HANDLE *pMutex){
+int rowlockOsMutexOpen(const char *name, MUTEX_HANDLE *pMutex){
   int ret;
   pthread_mutexattr_t mtxattr;
 
@@ -169,7 +169,7 @@ static int stretchFileSize(int fd, off_t size){
 ** This is because "fuser" returns users of memory mapped file in spite of 
 ** calling munmap() and close(), as we experimented.
 */
-int rowlockOsMmapOpen(u64 allocSize, char *name, MMAP_HANDLE *phMap, void **ppMap){
+int rowlockOsMmapOpen(u64 allocSize, const char *name, MMAP_HANDLE *phMap, void **ppMap){
   int fdMmap;
   int fdMng;
   char mngName[BUFSIZ] = {0};

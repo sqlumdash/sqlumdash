@@ -24,7 +24,7 @@ static void *(*xRootPageDelete)(HashI64*,sqlite3_int64,void*) = sqlite3HashI64In
 /**********************************************************************/
 /* For testing */
 static int rowlockSavepointCreate(RowLockSavepoint *pLockSavepoint, int iSavepoint);
-static void rowlockSavepointClose(RowLockSavepoint *pLockSavepoint, int op, int iSavepoint, IpcHandle *pHandle, void *pRootPages);
+static void rowlockSavepointClose(RowLockSavepoint *pLockSavepoint, int op, int iSavepoint, IpcHandle *pHandle, HashI64 *pRootPages);
 
 int sqlite3_rowlock_savepoint_init(RowLockSavepoint *pLockSavepoint){
   return sqlite3rowlockSavepointInit(pLockSavepoint);

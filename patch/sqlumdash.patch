@@ -870,7 +870,7 @@ SQLumDash3.25.0/src のみに存在: rowlock_savepoint.c
 SQLumDash3.25.0/src のみに存在: rowlock_savepoint.h
 diff -ru sqlite-src-3250000/src/sqlite.h.in SQLumDash3.25.0/src/sqlite.h.in
 --- sqlite-src-3250000/src/sqlite.h.in	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/src/sqlite.h.in	2018-12-20 11:00:01.000000000 +0900
++++ SQLumDash3.25.0/src/sqlite.h.in	2018-12-20 13:09:49.000000000 +0900
 @@ -9281,6 +9281,39 @@
  # undef double
  #endif
@@ -883,16 +883,16 @@ diff -ru sqlite-src-3250000/src/sqlite.h.in SQLumDash3.25.0/src/sqlite.h.in
 +#define SQLITE_CORRUPT_ROWID 99 /* rowid issued automatically is corrupted. */
 +
 +/* For cleanup tool */
-+void sqlite3_rowlock_ipc_unlock_record_all(void);
-+void sqlite3_rowlock_ipc_unlock_tables_all(void);
++void sqlite3_rowlock_ipc_unlock_record_all(const char *name);
++void sqlite3_rowlock_ipc_unlock_tables_all(const char *name);
 +
 +/* For the test */
 +typedef struct IpcHandle IpcHandle;
-+int sqlite3_rowlock_ipc_init(IpcHandle *pHandle, sqlite3_uint64 nByteRow, sqlite3_uint64 nByteTable, const void *owner);
++int sqlite3_rowlock_ipc_init(IpcHandle *pHandle, sqlite3_uint64 nByteRow, sqlite3_uint64 nByteTable, const void *owner, const char *name);
 +void sqlite3_rowlock_ipc_finish(IpcHandle *pHandle);
 +int sqlite3_rowlock_ipc_lock_record(IpcHandle *pHandle, int iTable, sqlite3_int64 rowid);
 +void sqlite3_rowlock_ipc_unlock_record(IpcHandle *pHandle, int iTable, sqlite3_int64 rowid);
-+void sqlite3_rowlock_ipc_unlock_record_proc(IpcHandle *pHandle);
++void sqlite3_rowlock_ipc_unlock_record_proc(IpcHandle *pHandle, const char *name);
 +int sqlite3_rowlock_ipc_lock_table(IpcHandle *pHandle, int iTable, unsigned char eLock, unsigned char *prevLock);
 +unsigned char sqlite3_rowlock_ipc_lock_table_query(IpcHandle *pHandle, int iTable);
 +void sqlite3_rowlock_ipc_unlock_table(IpcHandle *pHandle, int iTable);

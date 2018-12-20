@@ -16,10 +16,10 @@
 #include "Windows.h"
 #endif
 
-/* MMAP name */
-#define MMAP_NAME_ROWLOCK   "ROWLOCK_MAP"
-/* Mutex name */
-#define MUTEX_NAME_ROWLOCK   "ROWLOCK_MUTEX"
+/* MMAP name's suffix */
+#define MMAP_SUFFIX_ROWLOCK "-rowlock"
+/* Mutex name's suffix */
+#define MUTEX_SUFFIX_ROWLOCK "-rowlock-mutex"
 
 
 typedef struct RowMetaData {
@@ -39,6 +39,7 @@ typedef struct RowElement {
 } RowElement;
 
 
+void rowClassMapName(char *buf, int bufSize, const char *name);
 u8 rowClassIsInitialized(void *pMap);
 void rowClassInitArea(void *pMap, u64 allocSize);
 u64 rowClassElemCount(void *pMap);
