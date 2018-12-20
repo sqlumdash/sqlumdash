@@ -263,7 +263,6 @@ int sqlite3rowlockIpcLockTable(IpcHandle *pHandle, int iTable, u8 eLock, int mod
   pMeta->nLock++;
 
 lock_table_end:
-  rowlockOsMmapSync(pMap);
   rowlockOsMutexLeave(IpcTableLockMutex());
   return rc;
 }
@@ -409,7 +408,6 @@ static void sqlite3rowlockIpcUnlockTableCore(IpcHandle *pHandle, int iTable, int
   }
 
 unlock_table:
-  rowlockOsMmapSync(pMap);
   rowlockOsMutexLeave(IpcTableLockMutex());
 }
 
@@ -488,7 +486,6 @@ static void sqlite3rowlockIpcUnlockTablesProcCore(IpcHandle *pHandle, PID pid, i
   }while( idx!=idxStart );
 
 unlock_tables_proc_end:
-  rowlockOsMmapSync(pMap);
   rowlockOsMutexLeave(IpcTableLockMutex());
 
   /* Close ipc handle if it was opend in this function. */
@@ -539,7 +536,6 @@ int sqlite3rowlockIpcCachedRowidSet(IpcHandle *pHandle, int iTable, i64 rowid){
 
   if( i==pMeta->nElement ) rc = SQLITE_NOMEM_BKPT;
 
-  rowlockOsMmapSync(pMeta);
   rowlockOsMutexLeave(IpcTableLockMutex());
   return rc;
 }
@@ -598,7 +594,6 @@ void sqlite3rowlockIpcCachedRowidDropTable(IpcHandle *pHandle, int iTable){
   pMeta->nCache--;
 
 cached_rowid_drop_table_end:
-  rowlockOsMmapSync(pMeta);
   rowlockOsMutexLeave(IpcTableLockMutex());
 }
 
@@ -651,7 +646,6 @@ void sqlite3rowlockIpcCachedRowidReset(IpcHandle *pHandle, const char *name){
   pHandle->owner = owner;
 
 cached_rowid_reset:
-  rowlockOsMmapSync(pMeta);
   rowlockOsMutexLeave(IpcTableLockMutex());
 
   /* Close ipc handle if it was opend in this function. */

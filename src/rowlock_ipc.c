@@ -99,7 +99,6 @@ static int rowlockIpcCreate(u8 iClass, u64 allocSize, char *name, MMAP_HANDLE *p
 
   if( !xClass->xIsInitialized(pMap) ){
     xClass->xInitArea(pMap, allocSize);
-    rowlockOsMmapSync(pMap);
   }
 
   *ppMap = pMap;
@@ -176,8 +175,6 @@ int sqlite3rowlockIpcInit(IpcHandle *pHandle, u64 nByteRow, u64 nByteTable, cons
 #else
   memcpy(&((RowMetaData*)pRecordLock)->mutex, &rlMutex, sizeof(MUTEX_HANDLE));
   memcpy(&((TableMetaData*)pTableLock)->mutex, &tlMutex, sizeof(MUTEX_HANDLE));
-  rowlockOsMmapSync(pRecordLock);
-  rowlockOsMmapSync(pTableLock);
 #endif
 
   return SQLITE_OK;

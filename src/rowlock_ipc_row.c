@@ -197,7 +197,6 @@ int sqlite3rowlockIpcLockRecord(IpcHandle *pHandle, int iTable, i64 rowid){
   pMeta->count++;
 
 lock_record_end:
-  rowlockOsMmapSync(pMap);
   rowlockOsMutexLeave(IpcRowLockMutex());
   return rc;
 }
@@ -269,7 +268,6 @@ void sqlite3rowlockIpcUnlockRecord(IpcHandle *pHandle, int iTable, i64 rowid){
   pMeta->count--;
 
 unlock_record:
-  rowlockOsMmapSync(pMap);
   rowlockOsMutexLeave(IpcRowLockMutex());
 }
 
@@ -337,7 +335,6 @@ static void sqlite3rowlockIpcUnlockRecordProcCore(IpcHandle *pHandle, PID pid, c
   }while( idx!=idxStart );
 
 unlock_record_proc_end:
-  rowlockOsMmapSync(pMap);
   rowlockOsMutexLeave(IpcRowLockMutex());
 
   /* Close ipc handle if it was opend in this function. */
