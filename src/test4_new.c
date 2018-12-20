@@ -797,11 +797,6 @@ static int callback_function(void** result, int argc, char **argv, char** colv){
 static void do_exec(Thread *p) {
   char* ptr_tmp = NULL;
   
-  if (p->resultset != NULL) {
-    sqlite3_free (p->resultset);
-    p->resultset = NULL;
-  }
-  
   if( p->db==0 ) {
     p->zErr = p->zStaticErr = "no database is open";
     p->rc = SQLITE_ERROR;
@@ -855,6 +850,12 @@ static int SQLITE_TCLAPI tcl_thread_exec(
   thread_wait(&threadset[i]);
 
   Tcl_AppendResult(interp, threadset[i].resultset, 0);
+
+  if (threadset[i].resultset != NULL) {
+    sqlite3_free (threadset[i].resultset);
+    threadset[i].resultset = NULL;
+  }
+  
   return TCL_OK;
 }
 
