@@ -17,7 +17,7 @@ int sqlite3NomemError(int lineno){
 }
 
 int main(){
-  sqlite3rowlockIpcUnlockRecordAll();
-  sqlite3rowlockIpcUnlockTablesAll();
+  sqlite3_rowlock_ipc_unlock_record_all();
+  sqlite3_rowlock_ipc_unlock_tables_all();
   return 0;
 }
