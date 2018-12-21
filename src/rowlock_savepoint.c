@@ -129,7 +129,7 @@ static int rowlockSavepointCreate(RowLockSavepoint *pLockSavepoint, int iSavepoi
   if( pLockSavepoint->nSavepointMax<=pLockSavepoint->nSavepoints ){
     /* Expand the area twice. */
     RowLockSavepointEntry *pNew = (RowLockSavepointEntry*)sqlite3Realloc(pLockSavepoint->pSavepoints, 
-                                                                         pLockSavepoint->nSavepointMax*2);
+                                                                         sizeof(RowLockSavepointEntry)*pLockSavepoint->nSavepointMax*2);
     if( !pNew ) return SQLITE_NOMEM_BKPT;
     pLockSavepoint->nSavepointMax *= 2;
     pLockSavepoint->pSavepoints = pNew;
@@ -214,7 +214,7 @@ static int sqlite3rowlockHistoryAdd(RowLockSavepoint *pLockSavepoint, HistoryTyp
   if( pLockSavepoint->nHistoryMax<=pLockSavepoint->nHistory ){
     /* Expand the area twice. */
     RowLockHistory *pHistory = (RowLockHistory*)sqlite3Realloc(pLockSavepoint->pHistory, 
-                                                               pLockSavepoint->nHistoryMax*2);
+                                                               sizeof(RowLockHistory)*pLockSavepoint->nHistoryMax*2);
     if( !pHistory ) return SQLITE_NOMEM_BKPT;
     pLockSavepoint->nHistoryMax *= 2;
     pLockSavepoint->pHistory = pHistory;
