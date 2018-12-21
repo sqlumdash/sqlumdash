@@ -721,6 +721,7 @@ int sqlite3BtreeCursorAll(Btree *p, int iTable, int wrFlag,
     if( rc ) return rc;
   }
 
+  sqlite3BtreeCursorZero(pCur);
   if( p->sharable && iTable!=1 && !flag ){
     rc = sqlite3BtreeCursorOriginal(p, iTable, 0, pKeyInfo, pCur);
   }else{
