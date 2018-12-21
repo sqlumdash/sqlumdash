@@ -29,9 +29,9 @@ static void rowlockIpcCleanup(void){
 
 /* Launched when a signal is catched. */
 #if SQLITE_OS_WIN
-void rowlockSignalHandler(int signal){
+static void rowlockSignalHandler(int signal){
 #else
-void rowlockSignalHandler(int signal, siginfo_t *info, void *ctx) {
+static void rowlockSignalHandler(int signal, siginfo_t *info, void *ctx) {
 #endif
   switch( signal ){
     case SIGINT:
@@ -59,19 +59,30 @@ static int rowlockSetSignalAction(){
   return rowlockOsSetSignalAction(signals, sizeof(signals)/sizeof(int), &rowlockSignalHandler);
 }
 
+/*
+** Initialize rowlock feature. It must be called before sqlite3_open().
+** It is called automatically when this library is loaded or sqlite_initialize for the test.
+*/
+int rowlockInitialize(){
+  int ret;
+  sqlite3_enable_shared_cache(1);
+  ret = rowlockSetSignalAction();
+  if( ret!=EXIT_SUCCESS ) return SQLITE_ERROR;
+  return SQLITE_OK;
+}
+
 /* 
 ** The following functions are called when library is loaded or unloaded.
 ** Row lock feature requires to enable shared cache. 
 */
 #if SQLITE_OS_WIN
 BOOL WINAPI DllMain(HINSTANCE hInst, DWORD fdwReason, LPVOID lpvReserved){
-  int ret;
+  int rc;
   switch (fdwReason) {
     /* DLL is loaded */
     case DLL_PROCESS_ATTACH:
-      sqlite3_enable_shared_cache(1);
-      ret = rowlockSetSignalAction();
-      if( ret!=EXIT_SUCCESS ) return FALSE;
+      rc = rowlockInitialize();
+      if( rc!=SQLITE_OK ) return FALSE;
       break;
     /* New thread is creating */
     case DLL_THREAD_ATTACH:
@@ -89,8 +100,7 @@ BOOL WINAPI DllMain(HINSTANCE hInst, DWORD fdwReason, LPVOID lpvReserved){
 }
 #else
 __attribute__((constructor)) static void constructor(){
-  sqlite3_enable_shared_cache(1);
-  rowlockSetSignalAction();
+  rowlockInitialize();
 }
 
 __attribute__((destructor)) static void destructor(){

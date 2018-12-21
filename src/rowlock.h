@@ -62,6 +62,7 @@ typedef struct TransRootPage {
   struct KeyInfo *pKeyInfo;
 } TransRootPage;
 
+int rowlockInitialize();
 
 /*
 ** sqlite3TransBtreeXXX() functions operate related in transaction btree.

@@ -127,6 +127,12 @@ static int sqlite3Step(Vdbe *p){ \
 
 
 /* Macro for main.c */
+#define ROWLOCK_INIT \
+  do { \
+    rc = rowlockInitialize(); \
+    if( rc ) return rc; \
+  } while(0)
+
 #define ROWLOCK_MMAP_CONFIG \
     case SQLITE_CONFIG_MMAP_ROW_SIZE: { \
       sqlite3GlobalConfig.szMmapRowLock = va_arg(ap, sqlite3_uint64); \

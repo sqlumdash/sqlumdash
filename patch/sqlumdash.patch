@@ -793,8 +793,19 @@ diff -ru sqlite-src-3250000/src/global.c SQLumDash3.25.0/src/global.c
  /*
 diff -ru sqlite-src-3250000/src/main.c SQLumDash3.25.0/src/main.c
 --- sqlite-src-3250000/src/main.c	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/src/main.c	2018-09-26 12:01:22.000000000 +0900
-@@ -641,6 +641,8 @@
++++ SQLumDash3.25.0/src/main.c	2018-12-21 09:13:12.000000000 +0900
+@@ -163,6 +163,10 @@
+   */
+   if( sqlite3GlobalConfig.isInit ) return SQLITE_OK;
+ 
++#ifdef SQLITE_TEST
++  ROWLOCK_INIT;
++#endif
++
+   /* Make sure the mutex subsystem is initialized.  If unable to 
+   ** initialize the mutex subsystem, return early with the error.
+   ** If the system is so sick that we are unable to allocate a mutex,
+@@ -641,6 +645,8 @@
        sqlite3GlobalConfig.nStmtSpill = va_arg(ap, int);
        break;
      }
