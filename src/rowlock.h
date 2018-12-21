@@ -162,7 +162,9 @@ void sqlite3SetForceCommit(sqlite3 *db);
 int hasSharedCacheTableLock(Btree *pBtree, Pgno iRoot, int isIndex, int eLockType);
 
 /* rowlock_pager.c */
-int rowlockPagerCacheReset(Pager *pPager, int *isRefreshed);
+int rowlockPagerCheckSchemaVers(Pager *pPager, int version, u8 *needReset);
+int rowlockPagerCheckDbFileVers(Pager *pPager, u8 *needReset);
+int rowlockPagerCacheReset(Pager *pPager);
 int rowlockPagerReloadDbPage(PgHdr *pPg, Pager *pPager);
 
 /* rowlock_savepoint.c */

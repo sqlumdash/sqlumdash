@@ -1552,16 +1552,32 @@ static int sqlite3BtreeLockTableForRowLock(Btree *p, int iTab, u8 isWriteLock){
 /* Reset page cache. */
 static int rowlockBtreeCacheReset(Btree *p){
   int rc = SQLITE_OK;
-  int reset;
+  int iDb;
+  int schemaCookie;
+  u8 needReset = 0;
   
   if( p->db->init.busy ) return SQLITE_OK;
+  if( !transBtreeIsUsed(p) ) return SQLITE_OK;
 
-  rc = rowlockPagerCacheReset(p->pBt->pPager, &reset);
+  /* Check schema version. */
+  iDb = rowlockBtreeToIndex(p->db, p);
+  schemaCookie = p->db->aDb[iDb].pSchema->schema_cookie;
+  rc = rowlockPagerCheckSchemaVers(p->pBt->pPager, schemaCookie, &needReset);
   if( rc ) return rc;
 
-  if( reset ){
-    PgHdr *pPg = p->pBt->pPage1->pDbPage;
-    rc = rowlockPagerReloadDbPage(pPg, p->pBt->pPager);
+  /* Check database file version. */
+  if( !needReset ){
+    rc = rowlockPagerCheckDbFileVers(p->pBt->pPager, &needReset);
+    if( rc ) return rc;
+  }
+
+  if( needReset ){
+    rc = rowlockPagerCacheReset(p->pBt->pPager);
+    if( rc ) return rc;
+    if( p->pBt->pPage1 ){
+      PgHdr *pPg = p->pBt->pPage1->pDbPage;
+      rc = rowlockPagerReloadDbPage(pPg, p->pBt->pPager);
+    }
   }
 
   return rc;
@@ -1572,9 +1588,6 @@ int sqlite3BtreeLockTableAndCacheReset(Btree *p, int iTab, u8 isWriteLock){
   int rc = SQLITE_OK;
 
   rc = sqlite3BtreeLockTableForRowLock(p, iTab, isWriteLock);
-  if( rc ) return rc;
-
-  rc = rowlockBtreeCacheReset(p);
   if( rc ) return rc;
 
   return SQLITE_OK;
@@ -1756,6 +1769,9 @@ int sqlite3BtreeCachedRowidSetByOpenCursor(BtCursor *pCur){
 */
 int sqlite3BtreeBeginTransAll(Btree *p, int wrflag, int *pSchemaVersion){
   int rc = SQLITE_OK;
+
+  rc = rowlockBtreeCacheReset(p);
+  if( rc ) return rc;
 
   if( p->sharable ){
     if( (p->pBt->btsFlags & BTS_READ_ONLY)!=0 && wrflag ) return SQLITE_READONLY;
@@ -2145,6 +2161,7 @@ int sqlite3TransBtreeCommit(Btree *p){
   HashI64 *pTransRootPages = &pBtTrans->rootPages;
   BtCursor *pCur = NULL;
   HashElemI64 *elem = NULL;
+  u8 eLock;
 
   if( !transBtreeIsUsed(p) || (p->pBt->btsFlags & BTS_READ_ONLY)==1 ) return SQLITE_OK;
 
@@ -2152,8 +2169,20 @@ int sqlite3TransBtreeCommit(Btree *p){
   rc = exclusiveLockTables(p);
   if( rc ) return rc;
 
-  rc = rowlockBtreeCacheReset(p);
-  if( rc ) return rc;
+  /*
+  ** Reset the page cache if database file is changed.
+  ** We check the schema version and database file version. But the scheam version on memory is always
+  ** different from that of database file if DDL is executing.
+  ** But in case of DDL, the modification is done for pager in shared btree. We should not reset the cache.
+  ** If we reset the cache, the modification is also deleted. So we reset the cache if it is not DDL.
+  ** It is no problem because DDL is operated under exclusion control.
+  ** In order to know it is DDL or not, we check if sqlite_master is locked or not.
+  */
+  eLock = sqlite3rowlockIpcLockTableQuery(&p->btTrans.ipcHandle, 1);
+  if( eLock==NOT_LOCKED ){
+    rc = rowlockBtreeCacheReset(p);
+    if( rc ) return rc;
+  }
 
   pCur = (BtCursor*)sqlite3MallocZero(sizeof(BtCursor));
   if( !pCur ){

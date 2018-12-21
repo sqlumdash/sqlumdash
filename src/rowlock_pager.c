@@ -48,12 +48,39 @@ static int pager_write_pagelist(Pager *pPager, PgHdr *pList){
   return rc;
 }
 
-int rowlockPagerCacheReset(Pager *pPager, int *reset){
+int rowlockPagerCheckSchemaVers(Pager *pPager, int version, u8 *needReset){
+  int rc;
+  int schemaVersion;
+  char scVers[sizeof(schemaVersion)];
+
+  IOTRACE(("CKSCVERS %p %d\n", pPager, sizeof(scVers)));
+  rc = sqlite3OsRead(pPager->fd, &scVers, sizeof(scVers), 36 + BTREE_SCHEMA_VERSION*4);
+  if( rc==SQLITE_OK ){
+    schemaVersion = sqlite3Get4byte((const u8*)scVers);
+  }else{
+    if( rc!=SQLITE_IOERR_SHORT_READ ){
+      goto failed;
+    }
+    rc = SQLITE_OK;
+    schemaVersion = 0;
+  }
+
+  if( schemaVersion!=version && schemaVersion!=0 && version!=0 ){
+    *needReset = 1;
+  }else{
+    *needReset = 0;
+  }
+
+failed:
+  return rc;
+}
+
+int rowlockPagerCheckDbFileVers(Pager *pPager, u8 *needReset){
   int rc = SQLITE_OK;
   char dbFileVers[sizeof(pPager->dbFileVers)];
 
   if( pPager->fd->pMethods==NULL ){
-    *reset = 0;
+    *needReset = 0;
     return SQLITE_OK;
   }
 
@@ -68,15 +95,18 @@ int rowlockPagerCacheReset(Pager *pPager, int *reset){
   }
   
   if( memcmp(pPager->dbFileVers, dbFileVers, sizeof(dbFileVers))!=0 ){
-    pager_reset(pPager);
-    *reset = 1;
-    if( USEFETCH(pPager) ) sqlite3OsUnfetch(pPager->fd, 0, 0);
+    *needReset = 1;
   }else{
-    *reset = 0;
+    *needReset = 0;
   }
-  
+
 failed:
   return rc;
+}
+  
+int rowlockPagerCacheReset(Pager *pPager){
+  pager_reset(pPager);
+  if( USEFETCH(pPager) ) sqlite3OsUnfetch(pPager->fd, 0, 0);
 }
 
 int rowlockPagerReloadDbPage(PgHdr *pPg, Pager *pPager){
