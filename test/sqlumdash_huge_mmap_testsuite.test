@@ -1,0 +1,5 @@
+set testdir [file dirname $argv0]
+source $testdir/permutations.test
+
+run_test_suite SQLumdash-huge-mmap-testsuite
+finish_test

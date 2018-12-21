@@ -191,7 +191,7 @@ diff -ru sqlite-src-3250000/Makefile.in SQLumDash3.25.0/Makefile.in
  	rm -f config.h config.log config.status libtool Makefile sqlite3.pc
 diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
 --- sqlite-src-3250000/Makefile.msc	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/Makefile.msc	2018-12-20 11:00:01.000000000 +0900
++++ SQLumDash3.25.0/Makefile.msc	2018-12-21 09:19:36.000000000 +0900
 @@ -950,8 +950,8 @@
  
  # Should the database engine be compiled threadsafe
@@ -296,7 +296,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
  
  # Extension source code files, part 1.
  #
-@@ -1459,6 +1488,7 @@
+@@ -1459,11 +1488,13 @@
    $(TOP)\src\test2.c \
    $(TOP)\src\test3.c \
    $(TOP)\src\test4.c \
@@ -304,7 +304,13 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
    $(TOP)\src\test5.c \
    $(TOP)\src\test6.c \
    $(TOP)\src\test7.c \
-@@ -1576,7 +1606,16 @@
+   $(TOP)\src\test8.c \
+   $(TOP)\src\test9.c \
++  $(TOP)\src\test_rowlock.c \
+   $(TOP)\src\test_autoext.c \
+   $(TOP)\src\test_async.c \
+   $(TOP)\src\test_backup.c \
+@@ -1576,7 +1607,16 @@
     $(TOP)\src\vdbe.h \
     $(TOP)\src\vdbeInt.h \
     $(TOP)\src\vxworks.h \
@@ -322,7 +328,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
  
  # Header files used by extensions
  #
-@@ -1662,7 +1701,7 @@
+@@ -1662,7 +1702,7 @@
  # This is the default Makefile target.  The objects listed here
  # are what get build when you type just "make" with no arguments.
  #
@@ -331,7 +337,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
  
  # Targets that require the Tcl library.
  #
-@@ -1695,8 +1734,10 @@
+@@ -1695,8 +1735,10 @@
  sqlite3.def:	libsqlite3.lib
  	echo EXPORTS > sqlite3.def
  	dumpbin /all libsqlite3.lib \
@@ -344,7 +350,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
  # <</block2>>
  
  $(SQLITE3EXE):	shell.c $(SHELL_CORE_DEP) $(LIBRESOBJS) $(SHELL_CORE_SRC) $(SQLITE3H)
-@@ -1899,6 +1940,9 @@
+@@ -1899,6 +1941,9 @@
  func.lo:	$(TOP)\src\func.c $(HDR)
  	$(LTCOMPILE) $(CORE_COMPILE_OPTS) -c $(TOP)\src\func.c
  
@@ -354,7 +360,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
  global.lo:	$(TOP)\src\global.c $(HDR)
  	$(LTCOMPILE) $(CORE_COMPILE_OPTS) -c $(TOP)\src\global.c
  
-@@ -2070,6 +2114,27 @@
+@@ -2070,6 +2115,27 @@
  window.lo:	$(TOP)\src\window.c $(HDR)
  	$(LTCOMPILE) $(CORE_COMPILE_OPTS) -c $(TOP)\src\window.c
  
@@ -382,7 +388,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
  tclsqlite.lo:	$(TOP)\src\tclsqlite.c $(HDR) $(SQLITE_TCL_DEP)
  	$(LTCOMPILE) $(NO_WARN) -DUSE_TCL_STUBS=1 -DBUILD_sqlite -I$(TCLINCDIR) -c $(TOP)\src\tclsqlite.c
  
-@@ -2141,6 +2206,15 @@
+@@ -2141,6 +2207,15 @@
  zlib:
  	pushd $(ZLIBDIR) && $(MAKE) /f win32\Makefile.msc clean $(ZLIBLIB) && popd
  
@@ -398,7 +404,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
  # Rules to build the extension objects.
  #
  icu.lo:	$(TOP)\ext\icu\icu.c $(HDR) $(EXTHDR)
-@@ -2512,4 +2586,5 @@
+@@ -2512,4 +2587,5 @@
  	del /Q showshm.exe sqlite3_checker.* sqlite3_expert.exe 2>NUL
  	del /Q fts5.* fts5parse.* 2>NUL
  	del /Q lsm.h lsm1.c 2>NUL
@@ -939,8 +945,8 @@ diff -ru sqlite-src-3250000/src/sqliteInt.h SQLumDash3.25.0/src/sqliteInt.h
 SQLumDash3.25.0/src のみに存在: test4_new.c
 diff -ru sqlite-src-3250000/src/test_tclsh.c SQLumDash3.25.0/src/test_tclsh.c
 --- sqlite-src-3250000/src/test_tclsh.c	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/src/test_tclsh.c	2018-11-08 13:24:11.000000000 +0900
-@@ -62,6 +62,7 @@
++++ SQLumDash3.25.0/src/test_tclsh.c	2018-12-21 09:19:36.000000000 +0900
+@@ -62,11 +62,13 @@
    extern int Sqlitetest2_Init(Tcl_Interp*);
    extern int Sqlitetest3_Init(Tcl_Interp*);
    extern int Sqlitetest4_Init(Tcl_Interp*);
@@ -948,7 +954,13 @@ diff -ru sqlite-src-3250000/src/test_tclsh.c SQLumDash3.25.0/src/test_tclsh.c
    extern int Sqlitetest5_Init(Tcl_Interp*);
    extern int Sqlitetest6_Init(Tcl_Interp*);
    extern int Sqlitetest7_Init(Tcl_Interp*);
-@@ -131,6 +132,7 @@
+   extern int Sqlitetest8_Init(Tcl_Interp*);
+   extern int Sqlitetest9_Init(Tcl_Interp*);
++  extern int Sqlitetest_rowlock_Init(Tcl_Interp*);
+   extern int Sqlitetestasync_Init(Tcl_Interp*);
+   extern int Sqlitetest_autoext_Init(Tcl_Interp*);
+   extern int Sqlitetest_blob_Init(Tcl_Interp*);
+@@ -131,11 +133,13 @@
    Sqlitetest2_Init(interp);
    Sqlitetest3_Init(interp);
    Sqlitetest4_Init(interp);
@@ -956,6 +968,12 @@ diff -ru sqlite-src-3250000/src/test_tclsh.c SQLumDash3.25.0/src/test_tclsh.c
    Sqlitetest5_Init(interp);
    Sqlitetest6_Init(interp);
    Sqlitetest7_Init(interp);
+   Sqlitetest8_Init(interp);
+   Sqlitetest9_Init(interp);
++  Sqlitetest_rowlock_Init(interp);
+   Sqlitetestasync_Init(interp);
+   Sqlitetest_autoext_Init(interp);
+   Sqlitetest_blob_Init(interp);
 diff -ru sqlite-src-3250000/src/trigger.c SQLumDash3.25.0/src/trigger.c
 --- sqlite-src-3250000/src/trigger.c	2018-09-15 20:35:52.000000000 +0900
 +++ SQLumDash3.25.0/src/trigger.c	2018-09-26 12:01:23.000000000 +0900
@@ -1312,6 +1330,35 @@ diff -ru sqlite-src-3250000/src/vdbeaux.c SQLumDash3.25.0/src/vdbeaux.c
    if( rc ) return rc;
    if( res!=0 ) return SQLITE_CORRUPT_BKPT;
  #ifdef SQLITE_TEST
+diff -ru sqlite-src-3250000/test/permutations.test SQLumDash3.25.0/test/permutations.test
+--- sqlite-src-3250000/test/permutations.test	2018-09-15 20:35:52.000000000 +0900
++++ SQLumDash3.25.0/test/permutations.test	2018-12-21 09:24:08.000000000 +0900
+@@ -953,6 +953,25 @@
+   test_set $::allquicktests shared_err.test -exclude async3.test
+ ]
+ 
++#List of test that need huge MMap
++# select2.test
++# speed4.test
++test_suite "SQLumdash-huge-mmap-testsuite" -description {
++  Run test that need large MMap for much step in a transaction
++} -initialize {
++  catch {db close}
++  sqlite3_shutdown
++  catch {sqlite3_rowlock_config_mmap CONFIG_ROWLOCK_MMAP_SIZE 52428800}
++  sqlite3_initialize
++} -files {
++  select2.test
++} -shutdown {
++  catch {db close}
++  sqlite3_shutdown
++  catch {sqlite3_rowlock_config_mmap CONFIG_ROWLOCK_MMAP_SIZE 1048576}
++  sqlite3_initialize
++}
++
+ # The set of tests to run on the alternative-pcache
+ set perm-alt-pcache-testset {
+   async.test
 SQLumDash3.25.0/test のみに存在: rowlock_common.tcl
 diff -ru sqlite-src-3250000/test/tester.tcl SQLumDash3.25.0/test/tester.tcl
 --- sqlite-src-3250000/test/tester.tcl	2018-09-15 20:35:52.000000000 +0900
