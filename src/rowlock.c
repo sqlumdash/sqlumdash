@@ -903,7 +903,7 @@ int sqlite3TransBtreeInsert(
   if( rc ) return rc;
 
   rc = btreeMovetoOriginal(pCurIns, pX->pKey, pX->nKey, 0, &res);
-  pCurTrans->state = CURSOR_USE_TRANS;
+  pCurTrans->state = CURSOR_USE_SHARED | CURSOR_USE_TRANS;
   assert( sqlite3BtreeCursorIsValid(pCurIns) );
 
   return rc;
@@ -1155,15 +1155,13 @@ int sqlite3BtreeAdvanceAll(BtCursor *pCur, int flags, int(*xAdvance)(BtCursor*, 
 
   if( cursorSharedIsUsed(pCurTrans) ){
     rc = xAdvance(pCur, flags);
-  }else{
-    assert( cursorTransIsUsed(pCurTrans) );
-    if( btreeCursorIsPointing(pCur) ){
-      rc = btreeSeekToExist(pCur, xAdvance, flags);
-      if( rc ) return rc;
-    }
-    rc = xAdvance(pCurIns, flags);
+    if( rc!=SQLITE_OK && rc!=SQLITE_DONE ) return rc;
   }
-  if( rc!=SQLITE_OK && rc!=SQLITE_DONE ) return rc;
+
+  if( cursorTransIsUsed(pCurTrans) ){
+    rc = xAdvance(pCurIns, flags);
+    if( rc!=SQLITE_OK && rc!=SQLITE_DONE ) return rc;
+  }
 
   /* validate the cursor. */
   rc = btreeSeekToExistAll(pCur, xAdvance, flags, &res);
