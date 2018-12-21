@@ -539,7 +539,7 @@ rowlock_lock_records_query_end_1:
 /* Get a table lock. If it is successful, we memorize locked table id into history. */
 int sqlite3rowlockIpcLockTableAndAddHistory(Btree *p, int iTable, u8 eLock){
   int rc = SQLITE_OK;
-  u8 prevLock;
+  u8 prevLock = eLock;
 
   rc = sqlite3rowlockIpcLockTable(&p->btTrans.ipcHandle, iTable, eLock, MODE_LOCK_NORMAL, &prevLock);
   if( rc ) return rc;
