@@ -225,9 +225,13 @@ int sqlite3rowlockHistoryAddTableLock(RowLockSavepoint *pLockSavepoint, int iTab
 }
 
 int sqlite3TransBtreeSavepoint(Btree *p, int op, int iSavepoint){
-  BtreeTrans *pBtTrans = &p->btTrans;
-  Btree *pBtreeTrans = pBtTrans->pBtree;
+  BtreeTrans *pBtTrans;
+  Btree *pBtreeTrans;
 
+  if( !p ) return SQLITE_OK;
+
+  pBtTrans = &p->btTrans;
+  pBtreeTrans = pBtTrans->pBtree;
   if( !pBtreeTrans ){
     return sqlite3BtreeSavepointOriginal(p, op, iSavepoint);
   }else{
