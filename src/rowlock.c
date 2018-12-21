@@ -15,7 +15,6 @@
 
 static u8 rowlockIsIndex(Btree *p, int rootPage);
 static u8 cachedRowidFlagGet(BtCursor *pCur);
-static int sqlite3BtreeLockTableForRowLock(Btree *p, int iTab, u8 isWriteLock);
 
 static void rowlockIpcCleanup(void){
   BtShared *pBt;
@@ -1526,14 +1525,12 @@ int sqlite3BtreeUpdateMetaWithTransOpen(Btree *p, int idx, u32 iMeta){
 /*
 ** Get a table lock.
 ** For sqlite_master:
-**    READ_LOCK is ignored.
 **    Only one user can get WRITE_LOCK.
 ** For normal table:
-**    READ_LOCK is ignored.
 **    Multiple users can get WRITE_LOCK.
 **    Only one user can get EXCLUSIVE_LOCK if no one get WRITE_LOCK and EXCLUSIVE_LOCK.
 */
-static int sqlite3BtreeLockTableForRowLock(Btree *p, int iTab, u8 isWriteLock){
+int sqlite3BtreeLockTableForRowLock(Btree *p, int iTab, u8 isWriteLock){
   u8 lockType = READ_LOCK;
 
   assert( isWriteLock==0 || isWriteLock==1 || isWriteLock==2 );
@@ -1581,16 +1578,6 @@ static int rowlockBtreeCacheReset(Btree *p){
   }
 
   return rc;
-}
-
-/* Reset page cache in order to apply database file changes by the other processes. */
-int sqlite3BtreeLockTableAndCacheReset(Btree *p, int iTab, u8 isWriteLock){
-  int rc = SQLITE_OK;
-
-  rc = sqlite3BtreeLockTableForRowLock(p, iTab, isWriteLock);
-  if( rc ) return rc;
-
-  return SQLITE_OK;
 }
 
 /* Open write transaction and set database version. */

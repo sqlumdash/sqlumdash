@@ -82,7 +82,7 @@ int sqlite3BtreeIsInTrans(Btree *p){
   return sqlite3BtreeIsInTransAll(p);
 }
 int sqlite3BtreeLockTable(Btree *p, int iTab, u8 isWriteLock){
-  return sqlite3BtreeLockTableAndCacheReset(p, iTab, isWriteLock);
+  return sqlite3BtreeLockTableForRowLock(p, iTab, isWriteLock);
 }
 int sqlite3BtreeSetVersion(Btree *pBtree, int iVersion){
   return sqlite3BtreeSetVersionWithTransOpen(pBtree, iVersion);
