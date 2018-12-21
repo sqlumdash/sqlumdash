@@ -23,23 +23,24 @@ static void *(*xRootPageDelete)(HashI64*,sqlite3_int64,void*) = sqlite3HashI64In
 
 /**********************************************************************/
 /* For testing */
+static int rowlockSavepointInit(RowLockSavepoint *pLockSavepoint);
 static int rowlockSavepointCreate(RowLockSavepoint *pLockSavepoint, int iSavepoint);
-static void rowlockSavepointClose(RowLockSavepoint *pLockSavepoint, int op, int iSavepoint, IpcHandle *pHandle, HashI64 *pRootPages);
+static void rowlockSavepoint(RowLockSavepoint *pLockSavepoint, int op, int iSavepoint, IpcHandle *pHandle, HashI64 *pRootPages);
 
 int sqlite3_rowlock_savepoint_init(RowLockSavepoint *pLockSavepoint){
-  return sqlite3rowlockSavepointInit(pLockSavepoint);
+  return rowlockSavepointInit(pLockSavepoint);
 }
 
-void sqlite3_rowlock_savepoint_finish(RowLockSavepoint *pLockSavepoint){
-  sqlite3rowlockSavepointFinish(pLockSavepoint);
+void sqlite3_rowlock_savepoint_close(RowLockSavepoint *pLockSavepoint){
+  sqlite3rowlockSavepointClose(pLockSavepoint);
 }
 
 int sqlite3_rowlock_savepoint_create(RowLockSavepoint *pLockSavepoint, int iSavepoint){
   return rowlockSavepointCreate(pLockSavepoint, iSavepoint);
 }
 
-void sqlite3_rowlock_savepoint_close(RowLockSavepoint *pLockSavepoint, int op, int iSavepoint, IpcHandle *pHandle, void *pRootPages){
-  rowlockSavepointClose(pLockSavepoint, op, iSavepoint, pHandle, (HashI64*)pRootPages);
+void sqlite3_rowlock_savepoint(RowLockSavepoint *pLockSavepoint, int op, int iSavepoint, IpcHandle *pHandle, void *pRootPages){
+  rowlockSavepoint(pLockSavepoint, op, iSavepoint, pHandle, (HashI64*)pRootPages);
 }
 
 int sqlite3_rowlock_history_add_record(RowLockSavepoint *pLockSavepoint, int iTable, sqlite3_int64 rowid){
@@ -82,7 +83,7 @@ void sqlite3_rowlock_register_rootPageDel_func(void*(*xFunc)(void*,sqlite3_int64
 
 
 
-int sqlite3rowlockSavepointInit(RowLockSavepoint *pLockSavepoint){
+static int rowlockSavepointInit(RowLockSavepoint *pLockSavepoint){
   RowLockHistory *pHistory;
   RowLockSavepointEntry *pSavepoints;
 
@@ -105,7 +106,7 @@ int sqlite3rowlockSavepointInit(RowLockSavepoint *pLockSavepoint){
   return SQLITE_OK;
 }
 
-void sqlite3rowlockSavepointFinish(RowLockSavepoint *pLockSavepoint){
+void sqlite3rowlockSavepointClose(RowLockSavepoint *pLockSavepoint){
   sqlite3_free(pLockSavepoint->pHistory);
   pLockSavepoint->pHistory = NULL;
   pLockSavepoint->nHistoryMax = 0;
@@ -117,15 +118,33 @@ void sqlite3rowlockSavepointFinish(RowLockSavepoint *pLockSavepoint){
 }
 
 static int rowlockSavepointCreate(RowLockSavepoint *pLockSavepoint, int iSavepoint){
-  if( pLockSavepoint->nSavepointMax<=pLockSavepoint->nSavepoints ){
-    /* Expand the area twice. */
-    RowLockSavepointEntry *pSavepoints = (RowLockSavepointEntry*)sqlite3Realloc(pLockSavepoint->pSavepoints, 
-                                                                                pLockSavepoint->nSavepointMax*2);
-    if( !pSavepoints ) return SQLITE_NOMEM_BKPT;
-    pLockSavepoint->nSavepointMax *= 2;
-    pLockSavepoint->pSavepoints = pSavepoints;
+  int nSavepoints;
+  RowLockSavepointEntry *pSavepoints;
+
+  if( !pLockSavepoint->pSavepoints ){
+    int rc = rowlockSavepointInit(pLockSavepoint);
+    if( rc ) return rc;
   }
 
+  if( pLockSavepoint->nSavepointMax<=pLockSavepoint->nSavepoints ){
+    /* Expand the area twice. */
+    RowLockSavepointEntry *pNew = (RowLockSavepointEntry*)sqlite3Realloc(pLockSavepoint->pSavepoints, 
+                                                                         pLockSavepoint->nSavepointMax*2);
+    if( !pNew ) return SQLITE_NOMEM_BKPT;
+    pLockSavepoint->nSavepointMax *= 2;
+    pLockSavepoint->pSavepoints = pNew;
+  }
+
+  pSavepoints = pLockSavepoint->pSavepoints;
+  nSavepoints = pLockSavepoint->nSavepoints;
+
+  /* Don't create new element if it is same as the latest one. */
+  if( nSavepoints>0 && pSavepoints[nSavepoints-1].iSavepoint==iSavepoint &&
+      pSavepoints[nSavepoints-1].iLockRecord==pLockSavepoint->nHistory){
+    return SQLITE_OK;
+  }    
+
+  /* Add new element. */
   pLockSavepoint->pSavepoints[pLockSavepoint->nSavepoints].iSavepoint = iSavepoint;
   pLockSavepoint->pSavepoints[pLockSavepoint->nSavepoints].iLockRecord = pLockSavepoint->nHistory;
   pLockSavepoint->nSavepoints++;
@@ -137,7 +156,7 @@ static int rowlockSavepointRollbackTableLock(IpcHandle *pHandle, int iTable, u8 
   return sqlite3rowlockIpcLockTable(pHandle, iTable, prevLock, MODE_LOCK_FORCE, NULL);
 }
 
-static void rowlockSavepointClose(RowLockSavepoint *pLockSavepoint, int op, int iSavepoint, IpcHandle *pHandle, HashI64 *pRootPages){
+static void rowlockSavepoint(RowLockSavepoint *pLockSavepoint, int op, int iSavepoint, IpcHandle *pHandle, HashI64 *pRootPages){
   int i;
   u64 idxRowid = 0;
   u32 nSavepoints = 0;
@@ -177,9 +196,7 @@ static void rowlockSavepointClose(RowLockSavepoint *pLockSavepoint, int op, int 
   }
 
   /* Erase savepoint. */
-  memset(&pLockSavepoint->pHistory[idxRowid], 0, sizeof(RowLockHistory)*(pLockSavepoint->nHistory-idxRowid));
   memset(&pLockSavepoint->pSavepoints[nSavepoints], 0, sizeof(RowLockSavepointEntry)*(pLockSavepoint->nSavepoints-nSavepoints));
-  pLockSavepoint->nHistory = idxRowid;
   pLockSavepoint->nSavepoints = nSavepoints;
 
   return;
@@ -224,6 +241,20 @@ int sqlite3rowlockHistoryAddTableLock(RowLockSavepoint *pLockSavepoint, int iTab
   return sqlite3rowlockHistoryAdd(pLockSavepoint, RLH_TABLE_LOCK, iTable, 0, prevLock);
 }
 
+/* Create new savepoint. */
+int sqlite3TransBtreeSavepointCreate(Btree *p, int iSavepoint){
+  BtreeTrans *pBtTrans;
+  Btree *pBtreeTrans;
+
+  if( !p ) return SQLITE_OK;
+
+  pBtTrans = &p->btTrans;
+  pBtreeTrans = pBtTrans->pBtree;
+
+  return rowlockSavepointCreate(&pBtTrans->lockSavepoint, iSavepoint);
+}
+
+/* Rollback to or release savepoint. */
 int sqlite3TransBtreeSavepoint(Btree *p, int op, int iSavepoint){
   BtreeTrans *pBtTrans;
   Btree *pBtreeTrans;
@@ -235,10 +266,35 @@ int sqlite3TransBtreeSavepoint(Btree *p, int op, int iSavepoint){
   if( !pBtreeTrans ){
     return sqlite3BtreeSavepointOriginal(p, op, iSavepoint);
   }else{
-    /* Rollback or clear a row lock information. */
-    rowlockSavepointClose(&pBtTrans->lockSavepoint, op, iSavepoint, &pBtTrans->ipcHandle, &pBtTrans->rootPages);
+    /* Rollback to or release savepoint about shared memory information. */
+    rowlockSavepoint(&pBtTrans->lockSavepoint, op, iSavepoint, &pBtTrans->ipcHandle, &pBtTrans->rootPages);
     /* We use trans btree instead of shared btree. */
     return sqlite3BtreeSavepointOriginal(pBtreeTrans, op, iSavepoint);
+  }
+}
+
+/* Close all savepoints. */
+static void sqlite3TransBtreeSavepointClose(Btree *p){
+  BtreeTrans *pBtTrans;
+  Btree *pBtreeTrans;
+
+  if( !p ) return;
+
+  pBtTrans = &p->btTrans;
+  pBtreeTrans = pBtTrans->pBtree;
+  if( !pBtreeTrans ) return;
+
+  sqlite3rowlockSavepointClose(&pBtTrans->lockSavepoint);
+}
+
+/* Called instead of original sqlite3CloseSavepoints(). */
+void sqlite3CloseSavepointsAll(sqlite3 *db){
+  int i;
+
+  sqlite3CloseSavepointsOriginal(db);
+
+  for(i=0; i<db->nDb; i++){
+    sqlite3TransBtreeSavepointClose(db->aDb[i].pBt);
   }
 }
 

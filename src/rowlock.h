@@ -86,6 +86,7 @@ int sqlite3TransBtreeMovetoUnpacked(BtCursor *pCur, UnpackedRecord *pIdxKey, i64
 int sqlite3TransBtreeInsert(BtCursor *pCur, const BtreePayload *pX, int flags, int seekResult);
 int sqlite3TransBtreeDelete(BtCursor *pCur, u8 flags);
 int sqlite3TransBtreeCommit(Btree *p);
+int sqlite3TransBtreeSavepointCreate(Btree *p, int iSavepoint);
 int sqlite3TransBtreeSavepoint(Btree *p, int op, int iSavepoint);
 int sqlite3BtreeSavepointOriginal(Btree *p, int op, int iSavepoint);
 
@@ -163,6 +164,10 @@ int hasSharedCacheTableLock(Btree *pBtree, Pgno iRoot, int isIndex, int eLockTyp
 /* rowlock_pager.c */
 int rowlockPagerCacheReset(Pager *pPager, int *isRefreshed);
 int rowlockPagerReloadDbPage(PgHdr *pPg, Pager *pPager);
+
+/* rowlock_savepoint.c */
+void sqlite3CloseSavepointsOriginal(sqlite3 *db);
+void sqlite3CloseSavepointsAll(sqlite3 *db);
 
 #endif /* SQLITE_ROWLOCK_H */
 #endif /* SQLITE_OMIT_ROWLOCK */

@@ -1,6 +1,6 @@
 diff -ru sqlite-src-3250000/Makefile.in SQLumDash3.25.0/Makefile.in
 --- sqlite-src-3250000/Makefile.in	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/Makefile.in	2018-12-20 13:06:33.000000000 +0900
++++ SQLumDash3.25.0/Makefile.in	2018-12-21 10:27:05.000000000 +0900
 @@ -69,6 +69,9 @@
  # 
  TLIBS = @LIBS@ $(LIBS)
@@ -39,7 +39,7 @@ diff -ru sqlite-src-3250000/Makefile.in SQLumDash3.25.0/Makefile.in
    $(TOP)/src/global.c \
    $(TOP)/src/hash.c \
    $(TOP)/src/hash.h \
-@@ -307,6 +313,30 @@
+@@ -307,6 +313,31 @@
    $(TOP)/src/whereInt.h \
    $(TOP)/src/window.c
  
@@ -58,6 +58,7 @@ diff -ru sqlite-src-3250000/Makefile.in SQLumDash3.25.0/Makefile.in
 +  $(TOP)/src/rowlock_ipc_table.c \
 +  $(TOP)/src/rowlock_ipc_table.h \
 +  $(TOP)/src/rowlock_macro.h \
++  $(TOP)/src/rowlock_main.c \
 +  $(TOP)/src/rowlock_os.h \
 +  $(TOP)/src/rowlock_os_linux.c \
 +  $(TOP)/src/rowlock_os_linux.h \
@@ -70,7 +71,7 @@ diff -ru sqlite-src-3250000/Makefile.in SQLumDash3.25.0/Makefile.in
  # Source code for extensions
  #
  SRC += \
-@@ -470,6 +500,7 @@
+@@ -470,6 +501,7 @@
    $(TOP)/src/dbstat.c \
    $(TOP)/src/expr.c \
    $(TOP)/src/func.c \
@@ -78,7 +79,7 @@ diff -ru sqlite-src-3250000/Makefile.in SQLumDash3.25.0/Makefile.in
    $(TOP)/src/insert.c \
    $(TOP)/src/wal.c \
    $(TOP)/src/main.c \
-@@ -497,6 +528,14 @@
+@@ -497,6 +529,14 @@
    $(TOP)/src/wherecode.c \
    $(TOP)/src/whereexpr.c \
    $(TOP)/src/window.c \
@@ -93,7 +94,7 @@ diff -ru sqlite-src-3250000/Makefile.in SQLumDash3.25.0/Makefile.in
    parse.c \
    $(TOP)/ext/fts3/fts3.c \
    $(TOP)/ext/fts3/fts3_aux.c \
-@@ -513,6 +552,7 @@
+@@ -513,6 +553,7 @@
  HDR = \
     $(TOP)/src/btree.h \
     $(TOP)/src/btreeInt.h \
@@ -101,7 +102,7 @@ diff -ru sqlite-src-3250000/Makefile.in SQLumDash3.25.0/Makefile.in
     $(TOP)/src/hash.h \
     $(TOP)/src/hwtime.h \
     keywordhash.h \
-@@ -535,6 +575,16 @@
+@@ -535,6 +576,16 @@
     $(TOP)/src/vdbeInt.h \
     $(TOP)/src/vxworks.h \
     $(TOP)/src/whereInt.h \
@@ -118,7 +119,7 @@ diff -ru sqlite-src-3250000/Makefile.in SQLumDash3.25.0/Makefile.in
     config.h
  
  # Header files used by extensions
-@@ -606,7 +656,7 @@
+@@ -606,7 +657,7 @@
  # This is the default Makefile target.  The objects listed here
  # are what get build when you type just "make" with no arguments.
  #
@@ -127,7 +128,7 @@ diff -ru sqlite-src-3250000/Makefile.in SQLumDash3.25.0/Makefile.in
  
  Makefile: $(TOP)/Makefile.in
  	./config.status
-@@ -804,6 +854,9 @@
+@@ -804,6 +855,9 @@
  func.lo:	$(TOP)/src/func.c $(HDR)
  	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/func.c
  
@@ -137,7 +138,7 @@ diff -ru sqlite-src-3250000/Makefile.in SQLumDash3.25.0/Makefile.in
  global.lo:	$(TOP)/src/global.c $(HDR)
  	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/global.c
  
-@@ -975,6 +1028,27 @@
+@@ -975,6 +1029,27 @@
  window.lo:	$(TOP)/src/window.c $(HDR)
  	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/window.c
  
@@ -165,7 +166,7 @@ diff -ru sqlite-src-3250000/Makefile.in SQLumDash3.25.0/Makefile.in
  tclsqlite.lo:	$(TOP)/src/tclsqlite.c $(HDR)
  	$(LTCOMPILE) -DUSE_TCL_STUBS=1 -c $(TOP)/src/tclsqlite.c
  
-@@ -1033,6 +1107,14 @@
+@@ -1033,6 +1108,14 @@
  
  
  
@@ -180,7 +181,7 @@ diff -ru sqlite-src-3250000/Makefile.in SQLumDash3.25.0/Makefile.in
  # Rules to build the extension objects.
  #
  icu.lo:	$(TOP)/ext/icu/icu.c $(HDR) $(EXTHDR)
-@@ -1390,6 +1472,8 @@
+@@ -1390,6 +1473,8 @@
  	rm -f sqldiff sqldiff.exe
  	rm -f dbhash dbhash.exe
  	rm -f fts5.* fts5parse.*
@@ -191,7 +192,7 @@ diff -ru sqlite-src-3250000/Makefile.in SQLumDash3.25.0/Makefile.in
  	rm -f config.h config.log config.status libtool Makefile sqlite3.pc
 diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
 --- sqlite-src-3250000/Makefile.msc	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/Makefile.msc	2018-12-21 09:19:36.000000000 +0900
++++ SQLumDash3.25.0/Makefile.msc	2018-12-21 10:27:05.000000000 +0900
 @@ -950,8 +950,8 @@
  
  # Should the database engine be compiled threadsafe
@@ -250,7 +251,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
    $(TOP)\src\global.c \
    $(TOP)\src\hash.c \
    $(TOP)\src\insert.c \
-@@ -1326,7 +1334,17 @@
+@@ -1326,7 +1334,18 @@
    $(TOP)\src\where.c \
    $(TOP)\src\wherecode.c \
    $(TOP)\src\whereexpr.c \
@@ -262,6 +263,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
 +  $(TOP)\src\rowlock_ipc.c \
 +  $(TOP)\src\rowlock_ipc_row.c \
 +  $(TOP)\src\rowlock_ipc_table.c \
++  $(TOP)\src\rowlock_main.c \
 +  $(TOP)\src\rowlock_os_linux.c \
 +  $(TOP)\src\rowlock_os_win.c \
 +  $(TOP)\src\rowlock_pager.c \
@@ -269,7 +271,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
  
  # Core miscellaneous files.
  #
-@@ -1338,6 +1356,7 @@
+@@ -1338,6 +1357,7 @@
  SRC04 = \
    $(TOP)\src\btree.h \
    $(TOP)\src\btreeInt.h \
@@ -277,7 +279,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
    $(TOP)\src\hash.h \
    $(TOP)\src\hwtime.h \
    $(TOP)\src\msvc.h \
-@@ -1361,7 +1380,17 @@
+@@ -1361,7 +1381,17 @@
    $(TOP)\src\vdbeInt.h \
    $(TOP)\src\vxworks.h \
    $(TOP)\src\wal.h \
@@ -296,7 +298,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
  
  # Extension source code files, part 1.
  #
-@@ -1459,11 +1488,13 @@
+@@ -1459,11 +1489,13 @@
    $(TOP)\src\test2.c \
    $(TOP)\src\test3.c \
    $(TOP)\src\test4.c \
@@ -310,7 +312,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
    $(TOP)\src\test_autoext.c \
    $(TOP)\src\test_async.c \
    $(TOP)\src\test_backup.c \
-@@ -1576,7 +1607,16 @@
+@@ -1576,7 +1608,16 @@
     $(TOP)\src\vdbe.h \
     $(TOP)\src\vdbeInt.h \
     $(TOP)\src\vxworks.h \
@@ -328,7 +330,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
  
  # Header files used by extensions
  #
-@@ -1662,7 +1702,7 @@
+@@ -1662,7 +1703,7 @@
  # This is the default Makefile target.  The objects listed here
  # are what get build when you type just "make" with no arguments.
  #
@@ -337,7 +339,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
  
  # Targets that require the Tcl library.
  #
-@@ -1695,8 +1735,10 @@
+@@ -1695,8 +1736,10 @@
  sqlite3.def:	libsqlite3.lib
  	echo EXPORTS > sqlite3.def
  	dumpbin /all libsqlite3.lib \
@@ -350,7 +352,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
  # <</block2>>
  
  $(SQLITE3EXE):	shell.c $(SHELL_CORE_DEP) $(LIBRESOBJS) $(SHELL_CORE_SRC) $(SQLITE3H)
-@@ -1899,6 +1941,9 @@
+@@ -1899,6 +1942,9 @@
  func.lo:	$(TOP)\src\func.c $(HDR)
  	$(LTCOMPILE) $(CORE_COMPILE_OPTS) -c $(TOP)\src\func.c
  
@@ -360,7 +362,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
  global.lo:	$(TOP)\src\global.c $(HDR)
  	$(LTCOMPILE) $(CORE_COMPILE_OPTS) -c $(TOP)\src\global.c
  
-@@ -2070,6 +2115,27 @@
+@@ -2070,6 +2116,27 @@
  window.lo:	$(TOP)\src\window.c $(HDR)
  	$(LTCOMPILE) $(CORE_COMPILE_OPTS) -c $(TOP)\src\window.c
  
@@ -388,7 +390,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
  tclsqlite.lo:	$(TOP)\src\tclsqlite.c $(HDR) $(SQLITE_TCL_DEP)
  	$(LTCOMPILE) $(NO_WARN) -DUSE_TCL_STUBS=1 -DBUILD_sqlite -I$(TCLINCDIR) -c $(TOP)\src\tclsqlite.c
  
-@@ -2141,6 +2207,15 @@
+@@ -2141,6 +2208,15 @@
  zlib:
  	pushd $(ZLIBDIR) && $(MAKE) /f win32\Makefile.msc clean $(ZLIBLIB) && popd
  
@@ -404,7 +406,7 @@ diff -ru sqlite-src-3250000/Makefile.msc SQLumDash3.25.0/Makefile.msc
  # Rules to build the extension objects.
  #
  icu.lo:	$(TOP)\ext\icu\icu.c $(HDR) $(EXTHDR)
-@@ -2512,4 +2587,5 @@
+@@ -2512,4 +2588,5 @@
  	del /Q showshm.exe sqlite3_checker.* sqlite3_expert.exe 2>NUL
  	del /Q fts5.* fts5parse.* 2>NUL
  	del /Q lsm.h lsm1.c 2>NUL
@@ -799,7 +801,7 @@ diff -ru sqlite-src-3250000/src/global.c SQLumDash3.25.0/src/global.c
  /*
 diff -ru sqlite-src-3250000/src/main.c SQLumDash3.25.0/src/main.c
 --- sqlite-src-3250000/src/main.c	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/src/main.c	2018-12-21 09:13:12.000000000 +0900
++++ SQLumDash3.25.0/src/main.c	2018-12-21 10:27:05.000000000 +0900
 @@ -163,6 +163,10 @@
    */
    if( sqlite3GlobalConfig.isInit ) return SQLITE_OK;
@@ -820,6 +822,26 @@ diff -ru sqlite-src-3250000/src/main.c SQLumDash3.25.0/src/main.c
  
  #ifdef SQLITE_ENABLE_SORTER_REFERENCES
      case SQLITE_CONFIG_SORTERREF_SIZE: {
+@@ -1001,7 +1007,7 @@
+ ** database handle object, it does not close any savepoints that may be open
+ ** at the b-tree/pager level.
+ */
+-void sqlite3CloseSavepoints(sqlite3 *db){
++void sqlite3CloseSavepointsOriginal(sqlite3 *db){
+   while( db->pSavepoint ){
+     Savepoint *pTmp = db->pSavepoint;
+     db->pSavepoint = pTmp->pNext;
+@@ -4334,3 +4340,9 @@
+   return 0;
+ }
+ #endif /* SQLITE_OMIT_COMPILEOPTION_DIAGS */
++
++#ifndef SQLITE_AMALGAMATION
++#define SQLUMDASH_INCLUDED_FROM_MAIN_C
++#include "rowlock_main.c"
++#undef SQLUMDASH_INCLUDED_FROM_MAIN_C
++#endif
+\ ファイル末尾に改行がありません
 diff -ru sqlite-src-3250000/src/pager.c SQLumDash3.25.0/src/pager.c
 --- sqlite-src-3250000/src/pager.c	2018-09-15 20:35:52.000000000 +0900
 +++ SQLumDash3.25.0/src/pager.c	2018-12-14 11:02:51.000000000 +0900
@@ -877,6 +899,7 @@ SQLumDash3.25.0/src のみに存在: rowlock_ipc_row.h
 SQLumDash3.25.0/src のみに存在: rowlock_ipc_table.c
 SQLumDash3.25.0/src のみに存在: rowlock_ipc_table.h
 SQLumDash3.25.0/src のみに存在: rowlock_macro.h
+SQLumDash3.25.0/src のみに存在: rowlock_main.c
 SQLumDash3.25.0/src のみに存在: rowlock_os.h
 SQLumDash3.25.0/src のみに存在: rowlock_os_linux.c
 SQLumDash3.25.0/src のみに存在: rowlock_os_linux.h
@@ -887,7 +910,7 @@ SQLumDash3.25.0/src のみに存在: rowlock_savepoint.c
 SQLumDash3.25.0/src のみに存在: rowlock_savepoint.h
 diff -ru sqlite-src-3250000/src/sqlite.h.in SQLumDash3.25.0/src/sqlite.h.in
 --- sqlite-src-3250000/src/sqlite.h.in	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/src/sqlite.h.in	2018-12-20 13:22:07.000000000 +0900
++++ SQLumDash3.25.0/src/sqlite.h.in	2018-12-21 10:27:05.000000000 +0900
 @@ -9281,6 +9281,39 @@
  # undef double
  #endif
@@ -916,9 +939,9 @@ diff -ru sqlite-src-3250000/src/sqlite.h.in SQLumDash3.25.0/src/sqlite.h.in
 +void sqlite3_rowlock_ipc_register_hash_func(int iClass, sqlite3_uint64(*xFunc)(void *pMap, ...));
 +typedef struct RowLockSavepoint RowLockSavepoint;
 +int sqlite3_rowlock_savepoint_init(RowLockSavepoint *pLockSavepoint);
-+void sqlite3_rowlock_savepoint_finish(RowLockSavepoint *pLockSavepoint);
++void sqlite3_rowlock_savepoint(RowLockSavepoint *pLockSavepoint, int op, int iSavepoint, IpcHandle *pHandle, void *pRootPages);
++void sqlite3_rowlock_savepoint_close(RowLockSavepoint *pLockSavepoint);
 +int sqlite3_rowlock_savepoint_create(RowLockSavepoint *pLockSavepoint, int iSavepoint);
-+void sqlite3_rowlock_savepoint_close(RowLockSavepoint *pLockSavepoint, int op, int iSavepoint, IpcHandle *pHandle, void *pRootPages);
 +int sqlite3_rowlock_history_add_record(RowLockSavepoint *pLockSavepoint, int iTable, sqlite3_int64 rowid);
 +int sqlite3_rowlock_history_add_new_table(RowLockSavepoint *pLockSavepoint, int iTable);
 +int sqlite3_rowlock_history_add_table_lock(RowLockSavepoint *pLockSavepoint, int iTable, unsigned char prevLock);
@@ -1379,7 +1402,7 @@ diff -ru sqlite-src-3250000/test/tester.tcl SQLumDash3.25.0/test/tester.tcl
            lappend leftover $a
 diff -ru sqlite-src-3250000/tool/mksqlite3c-noext.tcl SQLumDash3.25.0/tool/mksqlite3c-noext.tcl
 --- sqlite-src-3250000/tool/mksqlite3c-noext.tcl	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/tool/mksqlite3c-noext.tcl	2018-12-14 10:34:09.000000000 +0900
++++ SQLumDash3.25.0/tool/mksqlite3c-noext.tcl	2018-12-21 10:27:05.000000000 +0900
 @@ -119,6 +119,16 @@
     vxworks.h
     wal.h
@@ -1405,7 +1428,7 @@ diff -ru sqlite-src-3250000/tool/mksqlite3c-noext.tcl SQLumDash3.25.0/tool/mksql
     fkey.c
     insert.c
     legacy.c
-@@ -353,6 +364,17 @@
+@@ -353,6 +364,18 @@
     where.c
     window.c
  
@@ -1415,6 +1438,7 @@ diff -ru sqlite-src-3250000/tool/mksqlite3c-noext.tcl SQLumDash3.25.0/tool/mksql
 +   rowlock_ipc.c
 +   rowlock_ipc_row.c
 +   rowlock_ipc_table.c
++   rowlock_main.c
 +   rowlock_os_linux.c
 +   rowlock_os_win.c
 +   rowlock_pager.c
@@ -1425,7 +1449,7 @@ diff -ru sqlite-src-3250000/tool/mksqlite3c-noext.tcl SQLumDash3.25.0/tool/mksql
     tokenize.c
 diff -ru sqlite-src-3250000/tool/mksqlite3c.tcl SQLumDash3.25.0/tool/mksqlite3c.tcl
 --- sqlite-src-3250000/tool/mksqlite3c.tcl	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/tool/mksqlite3c.tcl	2018-12-14 10:34:09.000000000 +0900
++++ SQLumDash3.25.0/tool/mksqlite3c.tcl	2018-12-21 10:27:05.000000000 +0900
 @@ -127,6 +127,16 @@
     vxworks.h
     wal.h
@@ -1451,7 +1475,7 @@ diff -ru sqlite-src-3250000/tool/mksqlite3c.tcl SQLumDash3.25.0/tool/mksqlite3c.
     fkey.c
     insert.c
     legacy.c
-@@ -372,6 +383,17 @@
+@@ -372,6 +383,18 @@
     where.c
     window.c
  
@@ -1461,6 +1485,7 @@ diff -ru sqlite-src-3250000/tool/mksqlite3c.tcl SQLumDash3.25.0/tool/mksqlite3c.
 +   rowlock_ipc.c
 +   rowlock_ipc_row.c
 +   rowlock_ipc_table.c
++   rowlock_main.c
 +   rowlock_os_linux.c
 +   rowlock_os_win.c
 +   rowlock_pager.c

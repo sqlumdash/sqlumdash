@@ -40,8 +40,7 @@ typedef struct RowLockSavepoint {
 } RowLockSavepoint;
 
 
-int sqlite3rowlockSavepointInit(RowLockSavepoint *pLockSavepoint);
-void sqlite3rowlockSavepointFinish(RowLockSavepoint *pLockSavepoint);
+void sqlite3rowlockSavepointClose(RowLockSavepoint *pLockSavepoint);
 int sqlite3rowlockHistoryAddRecord(RowLockSavepoint *pLockSavepoint, int iTable, i64 rowid);
 int sqlite3rowlockHistoryAddNewTable(RowLockSavepoint *pLockSavepoint, int iTable);
 int sqlite3rowlockHistoryAddTableLock(RowLockSavepoint *pLockSavepoint, int iTable, u8 prevLock);

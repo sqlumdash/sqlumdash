@@ -12,6 +12,7 @@
 #define SQLITE_ROWLOCK_IPC_ROW_H
 
 #include "sqliteInt.h"
+#include "rowlock_os.h"
 #if SQLITE_OS_WIN
 #include "Windows.h"
 #endif

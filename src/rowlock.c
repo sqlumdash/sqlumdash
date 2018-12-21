@@ -191,8 +191,7 @@ static int sqlite3TransBtreeOpen(
   if( rc ) return rc;
 
   /* Initialize BtreeTrans members. */
-  rc = sqlite3rowlockSavepointInit(&pBtTrans->lockSavepoint);
-  if( rc ) goto trans_btree_open_failed;
+  memset(&pBtTrans->lockSavepoint, 0, sizeof(RowLockSavepoint));
   dbFullPath = sqlite3PagerFilename(pBtree->pBt->pPager, 0);
   rc = sqlite3rowlockIpcInit(&pBtTrans->ipcHandle, sqlite3GlobalConfig.szMmapRowLock, sqlite3GlobalConfig.szMmapTableLock, pBtree, dbFullPath);
   if( rc ) goto trans_btree_open_failed;
@@ -204,7 +203,6 @@ static int sqlite3TransBtreeOpen(
 
 trans_btree_open_failed:
   sqlite3BtreeCloseOriginal(pBtreeTrans);
-  sqlite3rowlockSavepointFinish(&pBtTrans->lockSavepoint);
   return rc;
 }
 
@@ -231,7 +229,7 @@ static int sqlite3TransBtreeClose(Btree *pBtree){
   Btree *pBtreeTrans = pBtTrans->pBtree;
 
   if( pBtreeTrans ){
-    sqlite3rowlockSavepointFinish(&pBtTrans->lockSavepoint);
+    sqlite3rowlockSavepointClose(&pBtTrans->lockSavepoint);
     sqlite3rowlockIpcFinish(&pBtTrans->ipcHandle);
     sqlite3BtreeClose(pBtreeTrans);
     transRootPagesFinish(&pBtTrans->rootPages);
@@ -255,13 +253,18 @@ int sqlite3BtreeCloseAll(Btree *p){
 int sqlite3TransBtreeBeginTrans(Btree *p, int wrflag){
   BtreeTrans *pBtTrans = &p->btTrans;
   Btree *pBtreeTrans = pBtTrans->pBtree;
+  int rc;
 
   /* Do nothing if this is a transaction btree. */
   if( !pBtreeTrans ){
     return SQLITE_OK;
   }
 
-  return sqlite3BtreeBeginTransOriginal(pBtreeTrans, wrflag, 0);
+  rc = sqlite3BtreeBeginTransOriginal(pBtreeTrans, wrflag, 0);
+  if( rc ) return rc;
+
+  rc = sqlite3TransBtreeSavepointCreate(p, p->db->nSavepoint);
+  return rc;
 }
 
 /* Add new entry into a root page mapping. */
@@ -1765,10 +1768,13 @@ int sqlite3BtreeBeginTransAll(Btree *p, int wrflag, int *pSchemaVersion){
   if( transBtreeIsUsed(p) ){
     BtreeTrans *pBtTrans = &p->btTrans;
 
+#if 1
+    rc = sqlite3TransBtreeBeginTrans(p, wrflag);
+#else
     rc = sqlite3BtreeBeginTransOriginal(pBtTrans->pBtree, wrflag, 0);
+#endif
     if( rc ) return rc;
   }
-
   return SQLITE_OK;
 }
 
@@ -1826,7 +1832,9 @@ int sqlite3BtreeBeginStmtAll(Btree *p, int iStatement){
     return sqlite3BtreeBeginStmtOriginal(p, iStatement);
   }else{
     BtreeTrans *pBtTrans = &p->btTrans;
-    return sqlite3BtreeBeginStmtOriginal(pBtTrans->pBtree, iStatement);
+    int rc = sqlite3BtreeBeginStmtOriginal(pBtTrans->pBtree, iStatement);
+    if( rc ) return rc;
+    return sqlite3TransBtreeSavepointCreate(p, p->db->nSavepoint);
   }
 }
 
