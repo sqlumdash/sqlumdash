@@ -17,10 +17,10 @@
 #include "rowlock_savepoint.h"
 #include "sqliteInt.h"
 
-/* Indicates transaction cursor is valid or not. */
-#define CURSOR_NOT_USE    0
-#define CURSOR_USE_SHARED 1
-#define CURSOR_USE_TRANS  2
+/* Indicates transaction cursor is using or not. */
+#define CURSOR_NOT_USE    0x0
+#define CURSOR_USE_SHARED 0x1
+#define CURSOR_USE_TRANS  0x2
 
 typedef struct BtreeTrans {
   Btree *pBtree;                  /* Store inserted/deleted/updated records in a transaction */

@@ -120,6 +120,12 @@ static int transBtreeCursorIsUsed(BtCursor *pCur){
   return (pCurTrans->state != CURSOR_NOT_USE);
 }
 
+/* Return 1 if the shared cursor is using. */
+#define cursorSharedIsUsed(pCur) ((pCur->state&CURSOR_USE_SHARED)!=0)
+
+/* Return 1 if the transaction cursor is using. */
+#define cursorTransIsUsed(pCur) ((pCur->state&CURSOR_USE_TRANS)!=0)
+
 /* 
 ** Initialize a root page mapping which is a map of root page 
 ** between shared btree and transaction btree.
@@ -848,7 +854,7 @@ int sqlite3TransBtreeInsert(
   ** If a record is found, it means the update case, else the append case.
   */
   if( !(flags&OPFLAG_APPEND) && seekResult==0 ){
-    if( pCurTrans->state==CURSOR_USE_SHARED ){
+    if( cursorSharedIsUsed(pCurTrans) ){
       /* If a record exists in shared btree, it should be updated. */
       rc = btreeMovetoOriginal(pCur, pX->pKey, pX->nKey, 0, &res);
       if( rc ) return rc;
@@ -916,7 +922,7 @@ int sqlite3TransBtreeDelete(BtCursor *pCur, u8 flags){
     return sqlite3BtreeDelete(pCur, flags);
   }
 
-  if( pCurTrans->state==CURSOR_USE_TRANS ){
+  if( cursorTransIsUsed(pCurTrans) ){
     /*
     ** If the cursor is pointing a transaction tree, the row was
     ** added in a transaction. So we delete the row from
@@ -1147,10 +1153,10 @@ int sqlite3BtreeAdvanceAll(BtCursor *pCur, int flags, int(*xAdvance)(BtCursor*, 
     return xAdvance(pCur, flags);
   }
 
-  if( pCurTrans->state==CURSOR_USE_SHARED ){
+  if( cursorSharedIsUsed(pCurTrans) ){
     rc = xAdvance(pCur, flags);
   }else{
-    assert( pCurTrans->state==CURSOR_USE_TRANS );
+    assert( cursorTransIsUsed(pCurTrans) );
     if( btreeCursorIsPointing(pCur) ){
       rc = btreeSeekToExist(pCur, xAdvance, flags);
       if( rc ) return rc;
@@ -1588,7 +1594,7 @@ int sqlite3BtreeSetVersionWithTransOpen(Btree *pBtree, int iVersion){
 /* Call sqlite3BtreePayloadFetch() for using cursor. */
 const void *sqlite3BtreePayloadFetchAll(BtCursor *pCur, u32 *pAmt){
   BtCursorTrans *pCurTrans = &pCur->btCurTrans;
-  if( pCurTrans->state==CURSOR_USE_TRANS ){
+  if( cursorTransIsUsed(pCurTrans) ){
     return sqlite3BtreePayloadFetchOriginal(pCurTrans->pCurIns, pAmt);
   }else{
     return sqlite3BtreePayloadFetchOriginal(pCur, pAmt);
@@ -1598,7 +1604,7 @@ const void *sqlite3BtreePayloadFetchAll(BtCursor *pCur, u32 *pAmt){
 /* Call sqlite3BtreePayload() for using cursor. */
 int sqlite3BtreePayloadAll(BtCursor *pCur, u32 offset, u32 amt, void *pBuf){
   BtCursorTrans *pCurTrans = &pCur->btCurTrans;
-  if( pCurTrans->state==CURSOR_USE_TRANS ){
+  if( cursorTransIsUsed(pCurTrans) ){
     return sqlite3BtreePayloadOriginal(pCurTrans->pCurIns, offset, amt, pBuf);
   }else{
     return sqlite3BtreePayloadOriginal(pCur, offset, amt, pBuf);
@@ -1608,7 +1614,7 @@ int sqlite3BtreePayloadAll(BtCursor *pCur, u32 offset, u32 amt, void *pBuf){
 /* Call sqlite3BtreePayloadSize() for using cursor. */
 u32 sqlite3BtreePayloadSizeAll(BtCursor *pCur){
   BtCursorTrans *pCurTrans = &pCur->btCurTrans;
-  if( pCurTrans->state==CURSOR_USE_TRANS ){
+  if( cursorTransIsUsed(pCurTrans) ){
     return sqlite3BtreePayloadSizeOriginal(pCurTrans->pCurIns);
   }else{
     return sqlite3BtreePayloadSizeOriginal(pCur);
@@ -1618,7 +1624,7 @@ u32 sqlite3BtreePayloadSizeAll(BtCursor *pCur){
 /* Call sqlite3BtreeIntegerKey() for using cursor. */
 i64 sqlite3BtreeIntegerKeyAll(BtCursor *pCur){
   BtCursorTrans *pCurTrans = &pCur->btCurTrans;
-  if( pCurTrans->state==CURSOR_USE_TRANS ){
+  if( cursorTransIsUsed(pCurTrans) ){
     return sqlite3BtreeIntegerKeyOriginal(pCurTrans->pCurIns);
   }else{
     return sqlite3BtreeIntegerKeyOriginal(pCur);
@@ -1628,7 +1634,7 @@ i64 sqlite3BtreeIntegerKeyAll(BtCursor *pCur){
 /* Call sqlite3BtreeCursorRestore() for using cursor. */
 int sqlite3BtreeCursorRestoreAll(BtCursor *pCur, int *pDifferentRow){
   BtCursorTrans *pCurTrans = &pCur->btCurTrans;
-  if( pCurTrans->state==CURSOR_USE_TRANS ){
+  if( cursorTransIsUsed(pCurTrans) ){
     return sqlite3BtreeCursorRestoreOriginal(pCurTrans->pCurIns, pDifferentRow);
   }else{
     return sqlite3BtreeCursorRestoreOriginal(pCur, pDifferentRow);
@@ -1638,7 +1644,7 @@ int sqlite3BtreeCursorRestoreAll(BtCursor *pCur, int *pDifferentRow){
 /* Call sqlite3BtreeCursorHasMoved() for using cursor. */
 int sqlite3BtreeCursorHasMovedAll(BtCursor *pCur){
   BtCursorTrans *pCurTrans = &pCur->btCurTrans;
-  if( pCurTrans->state==CURSOR_USE_TRANS ){
+  if( cursorTransIsUsed(pCurTrans) ){
     return sqlite3BtreeCursorHasMovedOriginal(pCurTrans->pCurIns);
   }else{
     return sqlite3BtreeCursorHasMovedOriginal(pCur);
@@ -1649,7 +1655,7 @@ int sqlite3BtreeCursorHasMovedAll(BtCursor *pCur){
 /* Call sqlite3BtreeCursorIsValid() for using cursor. */
 int sqlite3BtreeCursorIsValidAll(BtCursor *pCur){
   BtCursorTrans *pCurTrans = &pCur->btCurTrans;
-  if( pCurTrans->state==CURSOR_USE_TRANS ){
+  if( cursorTransIsUsed(pCurTrans) ){
     return sqlite3BtreeCursorIsValidOriginal(pCurTrans->pCurIns);
   }else{
     return sqlite3BtreeCursorIsValidOriginal(pCur);
