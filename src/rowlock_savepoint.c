@@ -198,6 +198,11 @@ static void rowlockSavepoint(RowLockSavepoint *pLockSavepoint, int op, int iSave
   /* Erase savepoint. */
   memset(&pLockSavepoint->pSavepoints[nSavepoints], 0, sizeof(RowLockSavepointEntry)*(pLockSavepoint->nSavepoints-nSavepoints));
   pLockSavepoint->nSavepoints = nSavepoints;
+  if( op==SAVEPOINT_ROLLBACK ){
+    /* Erase history. */
+    memset(&pLockSavepoint->pHistory[idxRowid], 0, sizeof(RowLockHistory)*(pLockSavepoint->nHistory-idxRowid));
+    pLockSavepoint->nHistory = idxRowid;
+  }
 
   return;
 }
@@ -211,6 +216,11 @@ static void rowlockSavepoint(RowLockSavepoint *pLockSavepoint, int op, int iSave
 ** This information is used for savepoint rollback.
 */
 static int sqlite3rowlockHistoryAdd(RowLockSavepoint *pLockSavepoint, HistoryType type, int iTable, i64 rowid, u8 prevLock){
+  if( !pLockSavepoint->pHistory ){
+    int rc = rowlockSavepointInit(pLockSavepoint);
+    if( rc ) return rc;
+  }
+
   if( pLockSavepoint->nHistoryMax<=pLockSavepoint->nHistory ){
     /* Expand the area twice. */
     RowLockHistory *pHistory = (RowLockHistory*)sqlite3Realloc(pLockSavepoint->pHistory, 
