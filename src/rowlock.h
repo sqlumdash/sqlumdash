@@ -156,7 +156,7 @@ int restoreCursorPositionOriginal(BtCursor *pCur);
 void getCellInfoOriginal(BtCursor *pCur);
 BtShared *sharedCacheListGet(void);
 
-void sqlite3SetForceCommit(sqlite3 *db);
+void sqlite3SetForceCommit(Vdbe *p);
 
 /* rowlock_btree.c */
 int hasSharedCacheTableLock(Btree *pBtree, Pgno iRoot, int isIndex, int eLockType);

@@ -47,8 +47,8 @@
   sqlite3TableLock(pParse, iDb, pTable->tnum, 2, pTable->zName)
 
 /* Macro for vdbe.c */
-#define ROWLOCK_SET_FORCE_COMMIT() \
-  sqlite3SetForceCommit(p->db)
+#define ROWLOCK_SET_FORCE_COMMIT(p) \
+  sqlite3SetForceCommit(p)
 
 #define ROWLOCK_ENABLE_STMT_JOURNAL() \
   do { \
@@ -125,6 +125,16 @@ static int sqlite3Step(Vdbe *p){ \
   return rc; \
 }
 
+/* Macro for vdbeaux.c */
+#define ROWLOCK_VDBE_HALT(p) \
+  do { \
+    /* Release lock of tables for preventing COMMIT during statemet execution. */ \
+    sqlite3BtreeUnlockStmtTableLock(p->db); \
+    /* Close savepoints. OP_AutoCommit is not operated for force commit by DDL.
+    ** So we do it here.
+    */ \
+    if( p->forceCommit ) sqlite3CloseSavepoints(p->db); \
+  } while(0)
 
 /* Macro for main.c */
 #define ROWLOCK_INIT \

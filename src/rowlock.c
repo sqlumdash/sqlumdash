@@ -8,6 +8,7 @@
 */
 #ifndef SQLITE_OMIT_ROWLOCK
 #include "btreeInt.h"
+#include "vdbeInt.h"
 #include "rowlock_hash.h"
 #include "rowlock_ipc.h"
 #include "rowlock.h"
@@ -2233,8 +2234,10 @@ trans_btree_commit_failed:
 ** Set autocommit in order to execute commit after DDL.
 ** If I have an exclusive lock, DDL is executing.
 */
-void sqlite3SetForceCommit(sqlite3 *db){
+void sqlite3SetForceCommit(Vdbe *pVdbe){
   int i;
+  sqlite3 *db = pVdbe->db;
+
   if( db->autoCommit ) return;
   for(i=0; i<db->nDb; i++){
     Btree *p = db->aDb[i].pBt;
@@ -2243,6 +2246,7 @@ void sqlite3SetForceCommit(sqlite3 *db){
     eLock = sqlite3rowlockIpcLockTableQuery(&p->btTrans.ipcHandle, MASTER_ROOT);
     if( eLock==WRITE_LOCK ){
       p->db->autoCommit = 1;
+      pVdbe->forceCommit = 1;
       return;
     }
   }

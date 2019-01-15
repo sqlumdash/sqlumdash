@@ -1011,7 +1011,7 @@ diff -ru sqlite-src-3250000/src/trigger.c SQLumDash3.25.0/src/trigger.c
    assert( pTable!=0 );
 diff -ru sqlite-src-3250000/src/vdbe.c SQLumDash3.25.0/src/vdbe.c
 --- sqlite-src-3250000/src/vdbe.c	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/src/vdbe.c	2018-09-26 12:01:23.000000000 +0900
++++ SQLumDash3.25.0/src/vdbe.c	2019-01-15 16:46:04.000000000 +0900
 @@ -20,6 +20,9 @@
  */
  #include "sqliteInt.h"
@@ -1027,7 +1027,7 @@ diff -ru sqlite-src-3250000/src/vdbe.c SQLumDash3.25.0/src/vdbe.c
    VdbeFrame *pFrame;
    int pcx;
 -
-+  ROWLOCK_SET_FORCE_COMMIT();
++  ROWLOCK_SET_FORCE_COMMIT(p);
    pcx = (int)(pOp - aOp);
  #ifdef SQLITE_DEBUG
    if( pOp->p2==OE_Abort ){ sqlite3VdbeAssertAbortable(p); }
@@ -1275,6 +1275,19 @@ diff -ru sqlite-src-3250000/src/vdbe.c SQLumDash3.25.0/src/vdbe.c
      rc = sqlite3BtreeLockTable(db->aDb[p1].pBt, pOp->p2, isWriteLock);
      if( rc ){
        if( (rc&0xFF)==SQLITE_LOCKED ){
+diff -ru sqlite-src-3250000/src/vdbeInt.h SQLumDash3.25.0/src/vdbeInt.h
+--- sqlite-src-3250000/src/vdbeInt.h	2018-09-15 20:35:52.000000000 +0900
++++ SQLumDash3.25.0/src/vdbeInt.h	2019-01-15 16:46:04.000000000 +0900
+@@ -418,6 +418,9 @@
+   int nScan;              /* Entries in aScan[] */
+   ScanStatus *aScan;      /* Scan definitions for sqlite3_stmt_scanstatus() */
+ #endif
++#ifndef SQLITE_OMIT_ROWLOCK
++  u8 forceCommit;         /* True for statements that do commit forcibly by DDL */
++#endif
+ };
+ 
+ /*
 diff -ru sqlite-src-3250000/src/vdbeapi.c SQLumDash3.25.0/src/vdbeapi.c
 --- sqlite-src-3250000/src/vdbeapi.c	2018-09-15 20:35:52.000000000 +0900
 +++ SQLumDash3.25.0/src/vdbeapi.c	2018-09-26 12:01:23.000000000 +0900
@@ -1298,7 +1311,7 @@ diff -ru sqlite-src-3250000/src/vdbeapi.c SQLumDash3.25.0/src/vdbeapi.c
  
 diff -ru sqlite-src-3250000/src/vdbeaux.c SQLumDash3.25.0/src/vdbeaux.c
 --- sqlite-src-3250000/src/vdbeaux.c	2018-09-15 20:35:52.000000000 +0900
-+++ SQLumDash3.25.0/src/vdbeaux.c	2018-12-14 11:09:45.000000000 +0900
++++ SQLumDash3.25.0/src/vdbeaux.c	2019-01-15 16:46:04.000000000 +0900
 @@ -14,6 +14,9 @@
  */
  #include "sqliteInt.h"
@@ -1335,7 +1348,7 @@ diff -ru sqlite-src-3250000/src/vdbeaux.c SQLumDash3.25.0/src/vdbeaux.c
    }
  
 +#ifndef SQLITE_OMIT_ROWLOCK
-+  sqlite3BtreeUnlockStmtTableLock(db);
++  ROWLOCK_VDBE_HALT(p);
 +#endif
 +
    /* We have successfully halted and closed the VM.  Record this fact. */
