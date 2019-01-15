@@ -1493,11 +1493,11 @@ static void sqlite3TransBtreeRollback(Btree *p, int tripCode, int writeOnly){
   if( transBtreeIsUsed(p) ){
     BtreeTrans *pBtTrans = &p->btTrans;
     sqlite3BtreeRollbackOriginal(pBtTrans->pBtree, tripCode, writeOnly);
+    sqlite3rowlockSavepointClose(&pBtTrans->lockSavepoint);
     transRootPagesFinish(&pBtTrans->rootPages);
     sqlite3rowlockIpcUnlockRecordProc(&pBtTrans->ipcHandle, NULL);
     sqlite3rowlockIpcUnlockTablesProc(&pBtTrans->ipcHandle, NULL);
     sqlite3rowlockIpcCachedRowidReset(&pBtTrans->ipcHandle, NULL);
-    sqlite3TransBtreeSavepoint(p, tripCode, 0);
   }
 }
 
