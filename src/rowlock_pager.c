@@ -104,7 +104,7 @@ failed:
   return rc;
 }
   
-int rowlockPagerCacheReset(Pager *pPager){
+void rowlockPagerCacheReset(Pager *pPager){
   pager_reset(pPager);
   if( USEFETCH(pPager) ) sqlite3OsUnfetch(pPager->fd, 0, 0);
 }

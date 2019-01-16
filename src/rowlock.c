@@ -1570,8 +1570,7 @@ static int rowlockBtreeCacheReset(Btree *p){
   }
 
   if( needReset ){
-    rc = rowlockPagerCacheReset(p->pBt->pPager);
-    if( rc ) return rc;
+    rowlockPagerCacheReset(p->pBt->pPager);
     if( p->pBt->pPage1 ){
       PgHdr *pPg = p->pBt->pPage1->pDbPage;
       rc = rowlockPagerReloadDbPage(pPg, p->pBt->pPager);
