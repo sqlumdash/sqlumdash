@@ -80,6 +80,10 @@ array set ::Configs [strip_comments {
     -DSQLITE_THREADSAFE
     -DSQLITE_TCL_DEFAULT_FULLMUTEX=1
   }
+  "User-Auth" {
+    -O2
+    -DSQLITE_USER_AUTHENTICATION=1
+  }
   "Secure-Delete" {
     -O2
     -DSQLITE_SECURE_DELETE=1
@@ -273,6 +277,7 @@ array set ::Platforms [strip_comments {
     "Have-Not"                test
     "Secure-Delete"           test
     "Unlock-Notify"           "QUICKTEST_INCLUDE=notify2.test test"
+    "User-Auth"               tcltest
     "Update-Delete-Limit"     test
     "Extra-Robustness"        test
     "Device-Two"              test
