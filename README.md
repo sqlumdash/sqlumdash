@@ -30,6 +30,8 @@ Row lock information is shared with processes. If a process finished unexpectedl
 2-3. Use makefile
   nmake /F Makefile.msc
 
+## Notices
+DELETE-ALL requires to get a table lock. If someone are modfying the table(INSERT, DELETE and UPDATE), the other user cannot execute DELETE-ALL, and vice versa.
 
 ## Lisence
 This software excluding sqlite is released under the MIT License, see LICENSE file.
