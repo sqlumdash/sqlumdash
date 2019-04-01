@@ -212,10 +212,11 @@ int sqlite3rowlockIpcLockTable(IpcHandle *pHandle, int iTable, u8 eLock, int mod
       }else{
         /* Other user has a table lock. */
         if( iTable==MASTER_ROOT ){
-          /* Cannot get a write lock if someone has a write lock of sqlite_master. */
-          assert( pElem->eLock==WRITE_LOCK );
-          rc = SQLITE_LOCKED;
-          goto lock_table_end;
+          /* Cannot get a write lock if someone has a lock of sqlite_master. */
+          if( pElem->eLock==WRITE_LOCK || (pElem->eLock==READ_LOCK && eLock==WRITE_LOCK) ){
+            rc = SQLITE_LOCKED;
+            goto lock_table_end;
+          }
         }else{ /* Case of normal table. */
           /*
           ** We cannot get a lock if someone has an exclusive lock. In addition,

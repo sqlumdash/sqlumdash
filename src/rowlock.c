@@ -1547,8 +1547,27 @@ int sqlite3BtreeLockTableForRowLock(Btree *p, int iTab, u8 isWriteLock){
   return sqlite3rowlockIpcLockTableAndAddHistory(p, iTab, lockType);
 }
 
+static int rowlockPagecount(BtShared *pBt){
+  MemPage *pPage1;     /* Page 1 of the database file */
+  int nPage;           /* Number of pages in the database */
+  int nPageFile = 0;   /* Number of pages in the database file */
+
+  pPage1 = pBt->pPage1;
+  nPage = get4byte(28+(u8*)pPage1->aData);
+
+  sqlite3PagerPagecount(pBt->pPager, &nPageFile);
+  if( nPage==0 || memcmp(24+(u8*)pPage1->aData, 92+(u8*)pPage1->aData,4)!=0 ){
+    nPage = nPageFile;
+  }
+  if( (pBt->db->flags & SQLITE_ResetDatabase)!=0 ){
+    nPage = 0;
+  }
+
+  return nPage;
+}
+
 /* Reset page cache. */
-static int rowlockBtreeCacheReset(Btree *p){
+int rowlockBtreeCacheReset(Btree *p){
   int rc = SQLITE_OK;
   int iDb;
   int schemaCookie;
@@ -1574,10 +1593,12 @@ static int rowlockBtreeCacheReset(Btree *p){
     if( p->pBt->pPage1 ){
       PgHdr *pPg = p->pBt->pPage1->pDbPage;
       rc = rowlockPagerReloadDbPage(pPg, p->pBt->pPager);
+      if( rc ) return rc;
+      p->pBt->nPage = rowlockPagecount(p->pBt);
     }
   }
 
-  return rc;
+  return SQLITE_OK;
 }
 
 /* Open write transaction and set database version. */
@@ -1757,8 +1778,21 @@ int sqlite3BtreeCachedRowidSetByOpenCursor(BtCursor *pCur){
 int sqlite3BtreeBeginTransAll(Btree *p, int wrflag, int *pSchemaVersion){
   int rc = SQLITE_OK;
 
-  rc = rowlockBtreeCacheReset(p);
-  if( rc ) return rc;
+  if( !p->db->init.busy && transBtreeIsUsed(p) ){
+    u8 eLock = sqlite3rowlockIpcLockTableQuery(&p->btTrans.ipcHandle, MASTER_ROOT);
+    if( eLock==NOT_LOCKED ){
+      rc = sqlite3BtreeLockTable(p, MASTER_ROOT, 0);
+      if( rc ) return rc;
+    }
+
+    rc = rowlockBtreeCacheReset(p);
+
+    if( eLock==NOT_LOCKED ){
+      sqlite3rowlockIpcUnlockTable(&p->btTrans.ipcHandle, MASTER_ROOT);
+    }
+
+    if( rc ) return rc;
+  }
 
   if( p->sharable ){
     if( (p->pBt->btsFlags & BTS_READ_ONLY)!=0 && wrflag ) return SQLITE_READONLY;
@@ -2065,6 +2099,7 @@ static int exclusiveLockTables(Btree *p){
   HashElemI64 *elem = NULL;
   int *isModified = NULL;
   u8 *prevLock = NULL;
+  u8 prevLockMaster = 0;
   int i = 0;
   int iTableRollback = 0;
   u64 counter = 0;
@@ -2079,13 +2114,16 @@ static int exclusiveLockTables(Btree *p){
     elem = sqliteHashI64Next(elem);
   }
   if( counter>0 ){
+    rc = sqlite3rowlockIpcLockTable(&pBtTrans->ipcHandle, MASTER_ROOT, WRITE_LOCK, MODE_LOCK_COMMIT, &prevLockMaster);
+    if( rc ){
+      sqlite3_free(pCur);
+      return rc;
+    }
     isModified = (int*)sqlite3MallocZero(sizeof(int) * counter);
     prevLock = (u8*)sqlite3MallocZero(sizeof(u8) * counter);
     if( !isModified || !prevLock ){
-      sqlite3_free(pCur);
-      sqlite3_free(isModified);
-      sqlite3_free(prevLock);
-      return SQLITE_NOMEM_BKPT;
+      rc = SQLITE_NOMEM_BKPT;
+      goto exclusive_lock_tables_failed;
     }
   }
 
@@ -2124,14 +2162,17 @@ static int exclusiveLockTables(Btree *p){
 
 exclusive_lock_tables_failed:
   /* Rollback the lock status. */
-  elem = sqliteHashI64First(pTransRootPages);
-  i = 0;
-  while( elem ){
-    i64 iTable = sqliteHashI64Key(elem);
-    if( isModified[i] ) sqlite3rowlockIpcLockTable(&pBtTrans->ipcHandle, (int)iTable, MODE_LOCK_FORCE, prevLock[i], NULL);
-    i++;
-    elem = sqliteHashI64Next(elem);
+  if( isModified && prevLock ){
+    elem = sqliteHashI64First(pTransRootPages);
+    i = 0;
+    while( elem ){
+      i64 iTable = sqliteHashI64Key(elem);
+      if( isModified[i] ) sqlite3rowlockIpcLockTable(&pBtTrans->ipcHandle, (int)iTable, MODE_LOCK_FORCE, prevLock[i], NULL);
+      i++;
+      elem = sqliteHashI64Next(elem);
+    }
   }
+  if( counter>0 ) sqlite3rowlockIpcLockTable(&pBtTrans->ipcHandle, MASTER_ROOT, MODE_LOCK_FORCE, prevLockMaster, NULL);
   sqlite3_free(isModified);
   sqlite3_free(prevLock);
   sqlite3_free(pCur);
@@ -2149,8 +2190,12 @@ int sqlite3TransBtreeCommit(Btree *p){
   BtCursor *pCur = NULL;
   HashElemI64 *elem = NULL;
   u8 eLock;
+  u8 isDdl = 0;
 
   if( !transBtreeIsUsed(p) || (p->pBt->btsFlags & BTS_READ_ONLY)==1 ) return SQLITE_OK;
+
+  eLock = sqlite3rowlockIpcLockTableQuery(&p->btTrans.ipcHandle, MASTER_ROOT);
+  if( eLock==WRITE_LOCK ) isDdl = 1;
 
   /* Get EXCLSV_LOCK for modified tables in order to prevent from the table access by the other process. */
   rc = exclusiveLockTables(p);
@@ -2165,8 +2210,7 @@ int sqlite3TransBtreeCommit(Btree *p){
   ** It is no problem because DDL is operated under exclusion control.
   ** In order to know it is DDL or not, we check if sqlite_master is locked or not.
   */
-  eLock = sqlite3rowlockIpcLockTableQuery(&p->btTrans.ipcHandle, 1);
-  if( eLock==NOT_LOCKED ){
+  if( !isDdl ){
     rc = rowlockBtreeCacheReset(p);
     if( rc ) return rc;
   }

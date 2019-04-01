@@ -14,6 +14,7 @@ static int assert_pager_state_original(Pager *p);
 static int pager_write_pagelist_original(Pager *pPager, PgHdr *pList);
 static void pager_reset(Pager *pPager);
 static int readDbPage(PgHdr *pPg);
+static int pagerPagecount(Pager *pPager, Pgno *pnPage);
 
 #ifndef NDEBUG 
 static int assert_pager_state(Pager *p){
@@ -103,10 +104,24 @@ int rowlockPagerCheckDbFileVers(Pager *pPager, u8 *needReset){
 failed:
   return rc;
 }
-  
-void rowlockPagerCacheReset(Pager *pPager){
+
+int rowlockPagerCacheReset(Pager *pPager){
+  int rc = SQLITE_OK;
+
   pager_reset(pPager);
   if( USEFETCH(pPager) ) sqlite3OsUnfetch(pPager->fd, 0, 0);
+
+  /* Update dbSize variable. */
+  if( pPager->tempFile==0 && pPager->eLock!=NO_LOCK){
+    /* pagerPagecount() requires PAGER_OPEN. So change state forcibly and
+    ** revert to the original state after the function.
+    */
+    u8 eState = pPager->eState;
+    pPager->eState = PAGER_OPEN;
+    rc = pagerPagecount(pPager, &pPager->dbSize);
+    pPager->eState = eState;
+  }
+  return rc;
 }
 
 int rowlockPagerReloadDbPage(PgHdr *pPg, Pager *pPager){

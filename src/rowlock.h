@@ -155,8 +155,10 @@ int saveCursorPositionOriginal(BtCursor *pCur);
 int restoreCursorPositionOriginal(BtCursor *pCur);
 void getCellInfoOriginal(BtCursor *pCur);
 BtShared *sharedCacheListGet(void);
+int querySharedCacheTableLockOriginal(Btree *p, Pgno iTab, u8 eLock);
 
 void sqlite3SetForceCommit(Vdbe *p);
+int rowlockBtreeCacheReset(Btree *p);
 
 /* rowlock_btree.c */
 int hasSharedCacheTableLock(Btree *pBtree, Pgno iRoot, int isIndex, int eLockType);
@@ -164,7 +166,7 @@ int hasSharedCacheTableLock(Btree *pBtree, Pgno iRoot, int isIndex, int eLockTyp
 /* rowlock_pager.c */
 int rowlockPagerCheckSchemaVers(Pager *pPager, int version, u8 *needReset);
 int rowlockPagerCheckDbFileVers(Pager *pPager, u8 *needReset);
-void rowlockPagerCacheReset(Pager *pPager);
+int rowlockPagerCacheReset(Pager *pPager);
 int rowlockPagerReloadDbPage(PgHdr *pPg, Pager *pPager);
 
 /* rowlock_savepoint.c */

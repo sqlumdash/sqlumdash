@@ -114,5 +114,9 @@ void getCellInfoOriginal(BtCursor *pCur){
 BtShared *sharedCacheListGet(void){
   return GLOBAL(BtShared*,sqlite3SharedCacheList);
 }
+
+int querySharedCacheTableLockOriginal(Btree *p, Pgno iTab, u8 eLock){
+  return querySharedCacheTableLock(p, iTab, eLock);
+}
 #endif
 #endif
