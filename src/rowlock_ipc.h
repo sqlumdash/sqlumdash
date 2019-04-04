@@ -77,7 +77,6 @@ void sqlite3rowlockIpcUnlockRecordAll(const char *name);
 
 int sqlite3rowlockIpcLockTable(IpcHandle *pHandle, int iTable, u8 eLock, int mode, u8 *prevLock);
 void sqlite3rowlockIpcUnlockTablesStmtProc(IpcHandle *pHandle, const char *name);
-int sqlite3rowlockIpcTableDeletable(IpcHandle *pHandle, int iTable);
 u8 sqlite3rowlockIpcLockTableQuery(IpcHandle *pHandle, int iTable);
 void sqlite3rowlockIpcUnlockTable(IpcHandle *pHandle, int iTable);
 void sqlite3rowlockIpcUnlockTablesProc(IpcHandle *pHandle, const char *name);

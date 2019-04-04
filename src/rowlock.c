@@ -865,9 +865,6 @@ int sqlite3TransBtreeInsert(
       btFlags = BTREE_APPEND;
       if( res==0 ){
         isUpdate = 1;
-        /* Check whether we can modify a record in shared btree. */
-        rc = sqlite3rowlockIpcTableDeletable(&pCur->pBtree->btTrans.ipcHandle, pCur->pgnoRoot);
-        if( rc ) return rc;
       }
     }
   }
@@ -942,9 +939,6 @@ int sqlite3TransBtreeDelete(BtCursor *pCur, u8 flags){
     i64 nKey = 0;
     void *pKey = NULL;
     BtreePayload x = {0};   /* Payload to be inserted */
-
-    rc = sqlite3rowlockIpcTableDeletable(&pCur->pBtree->btTrans.ipcHandle, pCur->pgnoRoot);
-    if( rc ) return rc;
 
     if( pCur->pKeyInfo ){
       /* For an index btree. */
