@@ -1701,7 +1701,7 @@ static u8 cachedRowidFlagGet(BtCursor *pCur){
 ** negative rowids might run a little slower.  But in practice, zero
 ** or negative rowids are very uncommon so this should not be a problem.
 */
-void sqlite3BtreeCachedRowidSet(BtCursor *pCur, u64 iRowid){
+void sqlite3BtreeCachedRowidSet(BtCursor *pCur, i64 iRowid){
   if( transBtreeIsUsed(pCur->pBtree) ){
     sqlite3rowlockIpcCachedRowidSet(&pCur->pBtree->btTrans.ipcHandle, pCur->pgnoRoot, iRowid);
   }else{
@@ -1749,13 +1749,13 @@ int sqlite3BtreeCachedRowidSetByOpenCursor(BtCursor *pCur){
   if( rc ) return rc;
 
   if( res ){
-    /* If it is empty table, new rowid is 1. */
-    sqlite3BtreeCachedRowidSet(pCur, 1);
+    /* If it is empty table, new rowid is 0. */
+    sqlite3BtreeCachedRowidSet(pCur, 0);
   }else{
     u64 rowid = 0;
     assert( sqlite3BtreeCursorIsValid(pCur) );
     rowid = sqlite3BtreeIntegerKeyAll(pCur);
-    sqlite3BtreeCachedRowidSet(pCur, rowid+1);
+    sqlite3BtreeCachedRowidSet(pCur, rowid);
   }
 
   return SQLITE_OK;

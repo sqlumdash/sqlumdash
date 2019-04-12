@@ -67,7 +67,7 @@
   sqlite3BtreeCachedRowidFlagSet(pC->uc.pCursor, 1)
 
 #define ROWLOCK_CACHED_ROWID_SET() \
-  sqlite3BtreeCachedRowidSet(pC->uc.pCursor, v + 1)
+  sqlite3BtreeCachedRowidSet(pC->uc.pCursor, v)
 
 #define ROWLOCK_CACHED_ROWID_SET_BY_OPEN_CURSOR() \
   do { \
@@ -79,7 +79,7 @@
   do { \
     if( sqlite3BtreeCachedRowidGet(pC->uc.pCursor) != 0 && \
         sqlite3BtreeCachedRowidGet(pC->uc.pCursor) <= x.nKey ){ \
-      sqlite3BtreeCachedRowidSet(pC->uc.pCursor, x.nKey + 1); \
+      sqlite3BtreeCachedRowidSet(pC->uc.pCursor, x.nKey); \
     } \
   } while(0)
 
@@ -88,8 +88,9 @@
       v = sqlite3BtreeCachedRowidGet(pC->uc.pCursor); \
       if( v==MAX_ROWID ){ \
         pC->useRandomRowid = 1; \
-      } \
-      if( v==0 ){ \
+      }else if( v!=0 ){ \
+        v++; \
+      }else{ \
         rc = sqlite3BtreeLastAll(pC->uc.pCursor, &res); \
         if( rc!=SQLITE_OK ){ \
           goto abort_due_to_error; \
