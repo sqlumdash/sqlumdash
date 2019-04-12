@@ -14,12 +14,16 @@ Row lock information is shared with processes. If a process finished unexpectedl
 1. Generate SQLumDash source code.
 
 1-1. Apply patch
-  patch -p1 -d sqlite < patch/sqlumdash.patch
+```sh
+  $ patch -p1 -d sqlite < patch/sqlumdash.patch
+```
 
 1-2. Copy new files
-  cp src/* sqlite/src/
-  cp -R tool/* sqlite/tool/
-  cp test/* sqlite/test/
+```sh
+  $ cp src/* sqlite/src/
+  $ cp -R tool/* sqlite/tool/
+  $ cp test/* sqlite/test/
+```
 
 2. Build SQLumDash binary
 
@@ -28,7 +32,9 @@ Row lock information is shared with processes. If a process finished unexpectedl
 2-2. Goto sqlite directory
 
 2-3. Use makefile
-  nmake /F Makefile.msc
+```sh
+  $ nmake /F Makefile.msc
+```
 
 ## Notices
 DELETE-ALL requires to get a table lock. If someone are modfying the table(INSERT, DELETE and UPDATE), the other user cannot execute DELETE-ALL, and vice versa.
