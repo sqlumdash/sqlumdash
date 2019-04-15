@@ -98,7 +98,7 @@ int sqlite3BtreeAdvanceAll(BtCursor *pCur, int flags, int(*xAdvance)(BtCursor*, 
 #define sqlite3BtreeNextAll(pCur, flags) sqlite3BtreeAdvanceAll(pCur, sqlite3BtreeNext, flags)
 
 void sqlite3BtreeCachedRowidFlagSet(BtCursor *pCur, u8 flag);
-void sqlite3BtreeCachedRowidSet(BtCursor *pCur, u64 iRowid);
+void sqlite3BtreeCachedRowidSet(BtCursor *pCur, i64 iRowid);
 i64 sqlite3BtreeCachedRowidGet(BtCursor *pCur);
 int sqlite3BtreeCachedRowidSetByOpenCursor(BtCursor *pCur);
 
