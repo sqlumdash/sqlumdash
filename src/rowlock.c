@@ -185,6 +185,14 @@ static int sqlite3TransBtreeOpen(
     return SQLITE_OK;
   }
 
+  /* 
+  ** Do not create transaction btree when pager is not asociated with
+  ** file. This situation occurs by "ATTACH DATABASE '' AS dbname"
+  ** which is executed by VACUUM.
+  */
+  dbFullPath = sqlite3PagerFilename(pBtree->pBt->pPager, 0);
+  if( sqlite3_stricmp(dbFullPath, "")== 0 ) return SQLITE_OK;
+
   /* Open transaction Btree for Inserted record. */
   rc = sqlite3BtreeOpenOriginal(db->pVfs, 0, db, &pBtreeTrans,
     transFlags, transVfsFlags);
@@ -192,7 +200,6 @@ static int sqlite3TransBtreeOpen(
 
   /* Initialize BtreeTrans members. */
   memset(&pBtTrans->lockSavepoint, 0, sizeof(RowLockSavepoint));
-  dbFullPath = sqlite3PagerFilename(pBtree->pBt->pPager, 0);
   rc = sqlite3rowlockIpcInit(&pBtTrans->ipcHandle, sqlite3GlobalConfig.szMmapRowLock, sqlite3GlobalConfig.szMmapTableLock, pBtree, dbFullPath);
   if( rc ) goto trans_btree_open_failed;
 
@@ -2050,6 +2057,48 @@ static int transBtreeCommitTableDelete(BtCursor *pCur, TransRootPage *pRootPage)
 
 commit_table_delete_failed:
   sqlite3_free(buff);
+  return rc;
+}
+
+/* Get EXCLSV_LOCK of all tables for VACUUM. */
+int sqlite3rowlockExclusiveLockAllTables(Btree *p){
+  int rc = SQLITE_OK;
+  BtreeTrans *pBtTrans = &p->btTrans;
+  u8 prevLock;
+  Schema *pSchema;
+  unsigned int nTables = 0;
+  unsigned int counter = 0;
+  HashElem *i;
+
+  assert( p!=NULL );
+  assert( transBtreeIsUsed(p) );
+  
+  /* Get EXCLSV_LOCK of sqlite_master. */
+  rc = sqlite3rowlockIpcLockTable(&pBtTrans->ipcHandle, MASTER_ROOT, WRITE_LOCK, MODE_LOCK_COMMIT, &prevLock);
+  if( rc ) return rc;
+  assert( prevLock==NOT_LOCKED );
+  
+  /* Get EXCLSV_LOCK of normal tables. */
+  pSchema = (Schema*)p->pBt->pSchema;
+  for(i=sqliteHashFirst(&pSchema->tblHash); i; i=sqliteHashNext(i)){
+    Table *pTable = (Table*)sqliteHashData(i);
+    if( pTable->tnum==MASTER_ROOT ) continue;
+    rc = sqlite3rowlockIpcLockTable(&pBtTrans->ipcHandle, pTable->tnum, EXCLSV_LOCK, MODE_LOCK_COMMIT, &prevLock);
+    if( rc ) goto exclusive_lock_all_tables_failed;
+    assert( prevLock==NOT_LOCKED );
+    nTables++;
+  }
+
+  return SQLITE_OK;
+
+exclusive_lock_all_tables_failed:
+  for(i=sqliteHashFirst(&pSchema->tblHash); i && counter<nTables; i=sqliteHashNext(i)){
+    Table *pTable = (Table*)sqliteHashData(i);
+    if( pTable->tnum==MASTER_ROOT ) continue;
+    sqlite3rowlockIpcUnlockTable(&pBtTrans->ipcHandle, pTable->tnum);
+    counter++;
+  }
+  sqlite3rowlockIpcUnlockTable(&pBtTrans->ipcHandle, MASTER_ROOT);
   return rc;
 }
 

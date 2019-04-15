@@ -366,12 +366,12 @@ unlock_table:
   rowlockOsMutexLeave(IpcTableLockMutex());
 }
 
-/**********************************************************************/
-/* For testing */
 void sqlite3rowlockIpcUnlockTable(IpcHandle *pHandle, int iTable){
   sqlite3rowlockIpcUnlockTableCore(pHandle, iTable, MODE_UNLOCK_TRANS);
 }
 
+/**********************************************************************/
+/* For testing */
 void sqlite3rowlockIpcUnlockTableStmt(IpcHandle *pHandle, int iTable){
   sqlite3rowlockIpcUnlockTableCore(pHandle, iTable, MODE_UNLOCK_STMT);
 }

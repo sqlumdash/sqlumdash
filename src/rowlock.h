@@ -159,6 +159,7 @@ int querySharedCacheTableLockOriginal(Btree *p, Pgno iTab, u8 eLock);
 
 void sqlite3SetForceCommit(Vdbe *p);
 int rowlockBtreeCacheReset(Btree *p);
+int sqlite3rowlockExclusiveLockAllTables(Btree *p);
 
 /* rowlock_btree.c */
 int hasSharedCacheTableLock(Btree *pBtree, Pgno iRoot, int isIndex, int eLockType);

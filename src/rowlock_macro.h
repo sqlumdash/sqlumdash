@@ -166,4 +166,9 @@ static int sqlite3Step(Vdbe *p){ \
 #define ROWLOCK_SKIP_GET_EXCLUSIVE_LOCK() \
   exFlag = 0
 
+/* Macro for vacuum.c */
+#define ROWLOCK_VACUM_LOCK(p) \
+  rc = sqlite3rowlockExclusiveLockAllTables(p); \
+  if( rc!=SQLITE_OK ) goto end_of_vacuum;
+
 #endif
