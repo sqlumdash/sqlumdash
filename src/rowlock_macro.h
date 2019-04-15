@@ -36,7 +36,16 @@
 
 /* Macro for alter.c and build.c */
 #define ROWLOCK_TABLE_LOCK() \
+  if( !isView ) sqlite3TableLock(pParse, iDb, pTab->tnum, 2, pTab->zName)
+
+#define ROWLOCK_TABLE_LOCK_FOR_ALTER() \
   sqlite3TableLock(pParse, iDb, pTab->tnum, 2, pTab->zName)
+
+#define ROWLOCK_TABLE_LOCK_FOR_ALTER_IDB() \
+  do { \
+    int iDb = sqlite3SchemaToIndex(pParse->db, pTab->pSchema); \
+    sqlite3TableLock(pParse, iDb, pTab->tnum, 2, pTab->zName); \
+  } while(0)
 
 /* Macro for build.c */
 #define ROWLOCK_TABLE_LOCK_FOR_INDEX() \
@@ -170,5 +179,28 @@ static int sqlite3Step(Vdbe *p){ \
 #define ROWLOCK_VACUM_LOCK(p) \
   rc = sqlite3rowlockExclusiveLockAllTables(p); \
   if( rc!=SQLITE_OK ) goto end_of_vacuum;
+
+/* Macro for pragma.c */
+/* Make "PRAGMA schema_version=N" force-commit mode. */
+#define ROWLOCK_SCVER_OPECODE_ADD { OP_TableLock, 0, MASTER_ROOT, 1}
+
+#define ROWLOCK_SCVER_OPECODE_MAKE() \
+  do { \
+      /* Move aOp[1] to aOp[2] */ \
+      aOp[2].p1 = aOp[1].p1; \
+      aOp[2].p2 = aOp[1].p2; \
+      aOp[2].p3 = aOp[1].p3; \
+      /* Set aOp[1]. This is for OP_TableLock. */ \
+      aOp[1].p1 = iDb; \
+      aOp[1].p2 = MASTER_ROOT; \
+      aOp[1].p3 = 1; \
+  } while(0)
+
+/* Macro for backup.c */
+#define ROWLOCK_BACKUP_LOCK() \
+  do { \
+    if( rc==SQLITE_OK ) rc = sqlite3BtreeBeginTransOriginal(p->pDest, 2, 0); \
+    if( rc==SQLITE_OK ) rc = rowlockPagerExclusiveLock(pDestPager); \
+  } while(0)
 
 #endif

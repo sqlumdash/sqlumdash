@@ -171,6 +171,7 @@ int rowlockPagerCheckSchemaVers(Pager *pPager, int version, u8 *needReset);
 int rowlockPagerCheckDbFileVers(Pager *pPager, u8 *needReset);
 int rowlockPagerCacheReset(Pager *pPager);
 int rowlockPagerReloadDbPage(PgHdr *pPg, Pager *pPager);
+int rowlockPagerExclusiveLock(Pager *pPager);
 
 /* rowlock_savepoint.c */
 void sqlite3CloseSavepointsOriginal(sqlite3 *db);

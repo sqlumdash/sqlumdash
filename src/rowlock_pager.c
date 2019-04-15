@@ -15,6 +15,7 @@ static int pager_write_pagelist_original(Pager *pPager, PgHdr *pList);
 static void pager_reset(Pager *pPager);
 static int readDbPage(PgHdr *pPg);
 static int pagerPagecount(Pager *pPager, Pgno *pnPage);
+static int pagerLockDb(Pager *pPager, int eLock);
 
 #ifndef NDEBUG 
 static int assert_pager_state(Pager *p){
@@ -53,6 +54,12 @@ int rowlockPagerCheckSchemaVers(Pager *pPager, int version, u8 *needReset){
   int rc;
   int schemaVersion;
   char scVers[sizeof(schemaVersion)];
+
+  /* No need to check if it is memory database. */
+  if( pPager->memDb ){
+    needReset = 0;
+    return SQLITE_OK;
+  }
 
   IOTRACE(("CKSCVERS %p %d\n", pPager, sizeof(scVers)));
   rc = sqlite3OsRead(pPager->fd, &scVers, sizeof(scVers), 36 + BTREE_SCHEMA_VERSION*4);
@@ -130,6 +137,13 @@ int rowlockPagerReloadDbPage(PgHdr *pPg, Pager *pPager){
     pPager->xReiniter(pPg);
   }
   return rc;
+}
+
+int rowlockPagerExclusiveLock(Pager *pPager){
+  int rc = SQLITE_OK;
+  do {
+    rc = pagerLockDb(pPager, EXCLUSIVE_LOCK);
+  }while( rc==SQLITE_BUSY && pPager->xBusyHandler(pPager->pBusyHandlerArg) );
 }
 #endif /* SQLUMDASH_INCLUDED_FROM_PAGER_C || SQLITE_AMALGAMATION */
 #endif /* SQLITE_OMIT_ROWLOCK */

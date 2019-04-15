@@ -452,6 +452,17 @@ diff -ru sqlite-src-3260000/src/alter.c SQLumDash3.26.0/src/alter.c
  exit_begin_add_column:
    sqlite3SrcListDelete(db, pSrc);
    return;
+diff -ru sqlite-src-3260000/src/backup.c SQLumDash3.26.0/src/backup.c
+--- sqlite-src-3260000/src/backup.c	2018-12-01 20:38:18.000000000 +0900
++++ SQLumDash3.26.0/src/backup.c	2019-04-15 16:44:03.000000000 +0900
+@@ -402,6 +402,7 @@
+                                                 (int*)&p->iDestSchema)) 
+     ){
+       p->bDestLocked = 1;
++      ROWLOCK_BACKUP_LOCK();
+     }
+ 
+     /* Do not allow backup if the destination database is in WAL mode
 diff -ru sqlite-src-3260000/src/btree.c SQLumDash3.26.0/src/btree.c
 --- sqlite-src-3260000/src/btree.c	2018-12-01 20:38:18.000000000 +0900
 +++ SQLumDash3.26.0/src/btree.c	2019-04-15 16:39:40.000000000 +0900
