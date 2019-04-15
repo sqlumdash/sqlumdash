@@ -87,6 +87,9 @@ int sqlite3BtreeLockTable(Btree *p, int iTab, u8 isWriteLock){
 int sqlite3BtreeSetVersion(Btree *pBtree, int iVersion){
   return sqlite3BtreeSetVersionWithTransOpen(pBtree, iVersion);
 }
+int sqlite3BtreeIncrVacuum(Btree *p){
+  return sqlite3BtreeIncrVacuumForRowLock(p);
+}
 
 /* The following functions enable to use SQLite's original static functions from rowlock.c. */
 #ifdef SQLITE_DEBUG

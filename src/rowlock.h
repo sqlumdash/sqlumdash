@@ -125,6 +125,8 @@ void sqlite3BtreeUnlockStmtTableLock(sqlite3 *db);
 int sqlite3BtreeLockTableForRowLock(Btree *p, int iTab, u8 isWriteLock);
 int sqlite3BtreeSetVersionWithTransOpen(Btree *pBtree, int iVersion);
 int sqlite3BtreeSetVersionOriginal(Btree *pBtree, int iVersion);
+int sqlite3BtreeIncrVacuumForRowLock(Btree *p);
+int sqlite3BtreeIncrVacuumOriginal(Btree *p);
 const void *sqlite3BtreePayloadFetchOriginal(BtCursor *pCur, u32 *pAmt);
 const void *sqlite3BtreePayloadFetchAll(BtCursor *pCur, u32 *pAmt);
 int sqlite3BtreePayloadOriginal(BtCursor *pCur, u32 offset, u32 amt, void *pBuf);

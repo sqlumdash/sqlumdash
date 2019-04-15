@@ -2060,6 +2060,27 @@ commit_table_delete_failed:
   return rc;
 }
 
+/*
+** sqlite3BtreeIncrVacuum() for rowlock. Before calling sqlite3BtreeIncrVacuum(),
+** this function gets a EXCLSV_LOCK of sqlite_master and begins a write transaction.
+*/
+int sqlite3BtreeIncrVacuumForRowLock(Btree *p){
+  int rc = SQLITE_OK;
+  BtreeTrans *pBtTrans = &p->btTrans;
+
+  assert( p!=NULL );
+  assert( transBtreeIsUsed(p) );
+
+  rc = sqlite3rowlockIpcLockTableAndAddHistory(p, MASTER_ROOT, WRITE_LOCK);
+  if( rc ) return rc;
+
+  rc = sqlite3BtreeBeginTransOriginal(p, 1, 0);
+  if( rc ) return rc;
+
+  return sqlite3BtreeIncrVacuumOriginal(p);
+}
+
+
 /* Get EXCLSV_LOCK of all tables for VACUUM. */
 int sqlite3rowlockExclusiveLockAllTables(Btree *p){
   int rc = SQLITE_OK;
