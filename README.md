@@ -2,7 +2,7 @@
 
 SQLumDash is based on SQLite. Concurrency is improved by introducing the row lock feature. 
 
-The data lock specification is changed. SQLite's transaction isolation level is Serializable. That of SQLumDash is Read Committed. When user modifies record in a table, a record lock is acquired. If it cannot get a lock, the query fails. If DDL is executed, a transaction is committeded forcibly automatically.
+The data lock specification is changed. SQLite's transaction isolation level is Serializable. That of SQLumDash is Read Committed. When user modifies record in a table, a record lock is acquired. If it cannot get a lock, the query fails.
 
 You can use SQLumDash as same as SQLite. API is same. Currently, it is supported only Windows (build by MSVC). Linux will be supported soon.
 
@@ -37,7 +37,13 @@ Row lock information is shared with processes. If a process finished unexpectedl
 ```
 
 ## Notices
+### Table locking
 DELETE-ALL requires to get a table lock. If someone are modfying the table(INSERT, DELETE and UPDATE), the other user cannot execute DELETE-ALL, and vice versa.
+
+### Force-commit
+If DDL is executed, a transaction is committeded forcibly automatically.
+As same as DDL, the following command is also force-commit.
+- PRAGMA incremental_vacuum
 
 ## Lisence
 This software excluding sqlite is released under the MIT License, see LICENSE file.
