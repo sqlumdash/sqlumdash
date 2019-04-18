@@ -973,8 +973,18 @@ diff -ru sqlite-src-3260000/src/sqlite.h.in SQLumDash3.26.0/src/sqlite.h.in
  #endif
 diff -ru sqlite-src-3260000/src/sqliteInt.h SQLumDash3.26.0/src/sqliteInt.h
 --- sqlite-src-3260000/src/sqliteInt.h	2018-12-01 20:38:18.000000000 +0900
-+++ SQLumDash3.26.0/src/sqliteInt.h	2019-01-16 11:03:55.000000000 +0900
-@@ -3421,6 +3421,10 @@
++++ SQLumDash3.26.0/src/sqliteInt.h	2019-04-18 13:44:03.000000000 +0900
+@@ -1493,6 +1493,9 @@
+ #ifdef SQLITE_USER_AUTHENTICATION
+   sqlite3_userauth auth;        /* User authentication information */
+ #endif
++#ifndef SQLITE_OMIT_ROWLOCK
++  u8 inOpTrans;
++#endif
+ };
+ 
+ /*
+@@ -3421,6 +3424,10 @@
    int bInternalFunctions;           /* Internal SQL functions are visible */
    int iOnceResetThreshold;          /* When to reset OP_Once counters */
    u32 szSorterRef;                  /* Min size in bytes to use sorter-refs */
@@ -1061,7 +1071,7 @@ diff -ru sqlite-src-3260000/src/vacuum.c SQLumDash3.26.0/src/vacuum.c
    /* Do not attempt to change the page size for a WAL database */
 diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
 --- sqlite-src-3260000/src/vdbe.c	2018-12-01 20:38:18.000000000 +0900
-+++ SQLumDash3.26.0/src/vdbe.c	2019-04-01 18:52:08.000000000 +0900
++++ SQLumDash3.26.0/src/vdbe.c	2019-04-18 13:44:03.000000000 +0900
 @@ -20,6 +20,9 @@
  */
  #include "sqliteInt.h"
@@ -1106,7 +1116,15 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
      if( pOp->p2 && p->usesStmtJournal 
       && (db->autoCommit==0 || db->nVdbeRead>1) 
      ){
-@@ -3585,6 +3596,7 @@
+@@ -3290,6 +3301,7 @@
+       p->nStmtDefCons = db->nDeferredCons;
+       p->nStmtDefImmCons = db->nDeferredImmCons;
+     }
++    ROWLOCK_OP_TRANS_END();
+   }
+   assert( pOp->p5==0 || pOp->p4type==P4_INT32 );
+   if( pOp->p5
+@@ -3585,6 +3597,7 @@
    sqlite3BtreeCursorHintFlags(pCur->uc.pCursor,
                                 (pOp->p5 & (OPFLAG_BULKCSR|OPFLAG_SEEKEQ)));
    if( rc ) goto abort_due_to_error;
@@ -1114,7 +1132,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
    break;
  }
  
-@@ -3968,7 +3980,11 @@
+@@ -3968,7 +3981,11 @@
          if( (oc & 0x0001)==(OP_SeekLT & 0x0001) ) oc++;
        }
      } 
@@ -1126,7 +1144,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
      pC->movetoTarget = iKey;  /* Used by OP_Delete */
      if( rc!=SQLITE_OK ){
        goto abort_due_to_error;
-@@ -4012,7 +4028,11 @@
+@@ -4012,7 +4029,11 @@
      { int i; for(i=0; i<r.nField; i++) assert( memIsValid(&r.aMem[i]) ); }
  #endif
      r.eqSeen = 0;
@@ -1138,7 +1156,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
      if( rc!=SQLITE_OK ){
        goto abort_due_to_error;
      }
-@@ -4248,7 +4268,11 @@
+@@ -4248,7 +4269,11 @@
        }
      }
    }
@@ -1150,7 +1168,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
    if( pFree ) sqlite3DbFreeNN(db, pFree);
    if( rc!=SQLITE_OK ){
      goto abort_due_to_error;
-@@ -4350,7 +4374,11 @@
+@@ -4350,7 +4375,11 @@
    assert( pCrsr!=0 );
    res = 0;
    iKey = pIn3->u.i;
@@ -1162,7 +1180,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
    assert( rc==SQLITE_OK || res==0 );
    pC->movetoTarget = iKey;  /* Used by OP_Delete */
    pC->nullRow = 0;
-@@ -4446,7 +4474,11 @@
+@@ -4446,7 +4475,11 @@
  #   define MAX_ROWID  (i64)( (((u64)0x7fffffff)<<32) | (u64)0xffffffff )
  #endif
  
@@ -1174,7 +1192,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
        rc = sqlite3BtreeLast(pC->uc.pCursor, &res);
        if( rc!=SQLITE_OK ){
          goto abort_due_to_error;
-@@ -4462,6 +4494,7 @@
+@@ -4462,6 +4495,7 @@
            v++;   /* IMP: R-29538-34987 */
          }
        }
@@ -1182,7 +1200,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
      }
  
  #ifndef SQLITE_OMIT_AUTOINCREMENT
-@@ -4505,8 +4538,13 @@
+@@ -4505,8 +4539,13 @@
        do{
          sqlite3_randomness(sizeof(v), &v);
          v &= (MAX_ROWID>>1); v++;  /* Ensure that v is greater than zero */
@@ -1196,7 +1214,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
              && (res==0)
              && (++cnt<100));
        if( rc ) goto abort_due_to_error;
-@@ -4520,6 +4558,7 @@
+@@ -4520,6 +4559,7 @@
      pC->cacheStatus = CACHE_STALE;
    }
    pOut->u.i = v;
@@ -1204,7 +1222,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
    break;
  }
  
-@@ -4594,6 +4633,7 @@
+@@ -4594,6 +4634,7 @@
      assert( memIsValid(pKey) );
      REGISTER_TRACE(pOp->p3, pKey);
      x.nKey = pKey->u.i;
@@ -1212,7 +1230,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
    }else{
      assert( pOp->opcode==OP_InsertInt );
      x.nKey = pOp->p3;
-@@ -4635,9 +4675,15 @@
+@@ -4635,9 +4676,15 @@
      x.nZero = 0;
    }
    x.pKey = 0;
@@ -1228,7 +1246,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
    pC->deferredMoveto = 0;
    pC->cacheStatus = CACHE_STALE;
  
-@@ -4766,7 +4812,11 @@
+@@ -4766,7 +4813,11 @@
    }
  #endif
  
@@ -1240,7 +1258,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
    pC->cacheStatus = CACHE_STALE;
    pC->seekResult = 0;
    if( rc ) goto abort_due_to_error;
-@@ -5152,7 +5202,11 @@
+@@ -5152,7 +5203,11 @@
      assert( pC->eCurType==CURTYPE_BTREE );
      pCrsr = pC->uc.pCursor;
      assert( pCrsr );
@@ -1252,7 +1270,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
  #ifndef SQLITE_OMIT_WINDOWFUNC
      if( pOp->p5 ) sqlite3BtreeSkipNext(pCrsr);
  #endif
-@@ -5256,7 +5310,11 @@
+@@ -5256,7 +5311,11 @@
         || pC->seekOp==OP_Last 
         || pC->seekOp==OP_NullRow);
  
@@ -1264,7 +1282,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
  next_tail:
    pC->cacheStatus = CACHE_STALE;
    VdbeBranchTaken(rc==SQLITE_OK,2);
-@@ -5333,10 +5391,17 @@
+@@ -5333,10 +5392,17 @@
      x.pKey = pIn2->z;
      x.aMem = aMem + pOp->p3;
      x.nMem = (u16)pOp->p4.i;
@@ -1282,7 +1300,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
      assert( pC->deferredMoveto==0 );
      pC->cacheStatus = CACHE_STALE;
    }
-@@ -5371,10 +5436,18 @@
+@@ -5371,10 +5437,18 @@
    r.nField = (u16)pOp->p3;
    r.default_rc = 0;
    r.aMem = &aMem[pOp->p2];
@@ -1301,7 +1319,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
      if( rc ) goto abort_due_to_error;
    }
    assert( pC->deferredMoveto==0 );
-@@ -5605,7 +5678,11 @@
+@@ -5605,7 +5679,11 @@
      iDb = pOp->p3;
      assert( DbMaskTest(p->btreeMask, iDb) );
      iMoved = 0;  /* Not needed.  Only to silence a warning. */
@@ -1313,7 +1331,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
      pOut->flags = MEM_Int;
      pOut->u.i = iMoved;
      if( rc ) goto abort_due_to_error;
-@@ -5646,9 +5723,15 @@
+@@ -5646,9 +5724,15 @@
    nChange = 0;
    assert( p->readOnly==0 );
    assert( DbMaskTest(p->btreeMask, pOp->p2) );
@@ -1329,7 +1347,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
    if( pOp->p3 ){
      p->nChange += nChange;
      if( pOp->p3>0 ){
-@@ -6770,7 +6853,11 @@
+@@ -6770,7 +6854,11 @@
      int p1 = pOp->p1; 
      assert( p1>=0 && p1<db->nDb );
      assert( DbMaskTest(p->btreeMask, p1) );
@@ -1341,7 +1359,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
      rc = sqlite3BtreeLockTable(db->aDb[p1].pBt, pOp->p2, isWriteLock);
      if( rc ){
        if( (rc&0xFF)==SQLITE_LOCKED ){
-@@ -6779,6 +6866,8 @@
+@@ -6779,6 +6867,8 @@
        }
        goto abort_due_to_error;
      }
