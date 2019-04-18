@@ -76,15 +76,17 @@ void sqlite3_rowlock_ipc_register_hash_func(int iClass, sqlite3_uint64(*xFunc)(v
 }
 /**********************************************************************/
 
-static void rowlockIpcMapName(u8 iClass, char *buf, int bufSize, const char *name){
+static int rowlockIpcMapName(u8 iClass, char *buf, size_t bufSize, const char *name){
   IpcClass *xClass = &ipcClasses[iClass];
   char fullPath[BUFSIZ] = {0};
   int rc;
   sqlite3_vfs *pVfs = sqlite3_vfs_find(0);
 
   rc = sqlite3OsFullPathname(pVfs, name, sizeof(fullPath), fullPath);
-  assert( rc==SQLITE_OK );
-  xClass->xMapName(buf, bufSize, fullPath);
+  if( rc ) return rc;
+  rc = xClass->xMapName(buf, bufSize, fullPath);
+  if( rc!=0 ) return SQLITE_CANTOPEN;
+  return rc;
 }
 
 static int rowlockIpcCreate(u8 iClass, u64 allocSize, char *name, MMAP_HANDLE *phMap, void **ppMap){
@@ -109,6 +111,17 @@ static int rowlockIpcCreate(u8 iClass, u64 allocSize, char *name, MMAP_HANDLE *p
 static void rowlockIpcClose(MMAP_HANDLE hMap, void *pMap, MUTEX_HANDLE *pMutex){
   rowlockOsMutexClose(pMutex);
   rowlockOsMmapClose(hMap, pMap);
+}
+
+/* Concatenate two strings and store it into buffer.
+** Return 0 if successful.
+*: Return 1 if buffer is too small.
+*/
+int rowlockStrCat(char *dest, size_t size, const char *src1, const char *src2){
+  size_t len = strlen(src1) + strlen(src2) + 1;
+  if( len>size ) return 1;
+  xSnprintf(dest, size, "%s%s", src1, src2);
+  return 0;
 }
 
 /*
@@ -140,24 +153,29 @@ int sqlite3rowlockIpcInit(IpcHandle *pHandle, u64 nByteRow, u64 nByteTable, cons
   MUTEX_HANDLE rlMutex = {0};
   MUTEX_HANDLE tlMutex = {0};
 
-  /* Open MMAP. */
+  /* Calculate MMAP sizes. */
   nElemRow = (nByteRow - sizeof(RowMetaData)) / sizeof(RowElement);
   nElemTable = (nByteTable - sizeof(TableMetaData)) / (sizeof(TableElement) + sizeof(CachedRowid));
-
   nAllocRow = sizeof(RowMetaData) + sizeof(RowElement) * nElemRow;
   nAllocTable = sizeof(TableMetaData) + (sizeof(TableElement) + sizeof(CachedRowid)) * nElemTable;
 
-  rowlockIpcMapName(IPC_CLASS_ROW, mapNameRow, sizeof(mapNameRow), name);
-  rowlockIpcMapName(IPC_CLASS_TABLE, mapNameTable, sizeof(mapNameTable), name);
+  /* Create MMAP and mutex names. */
+  rc = rowlockIpcMapName(IPC_CLASS_ROW, mapNameRow, sizeof(mapNameRow), name);
+  if( rc ) return rc;
+  rc = rowlockIpcMapName(IPC_CLASS_TABLE, mapNameTable, sizeof(mapNameTable), name);
+  if( rc ) return rc;
+  rc = rowlockStrCat(mtxNameRow, sizeof(mtxNameRow), name, MUTEX_SUFFIX_ROWLOCK);
+  if( rc ) return rc;
+  rc = rowlockStrCat(mtxNameTable, sizeof(mtxNameTable), name, MUTEX_SUFFIX_TABLELOCK);
+  if( rc ) return rc;
+
+  /* Open MMAP. */
   rc = rowlockIpcCreate(IPC_CLASS_ROW, nAllocRow, mapNameRow, &hRecordLock, &pRecordLock);
   if( rc ) return rc;
   rc = rowlockIpcCreate(IPC_CLASS_TABLE, nAllocTable, mapNameTable, &hTableLock, &pTableLock);
   if( rc ) goto ipc_init_failed;
 
   /* Open mutex. */
-  xSnprintf(mtxNameRow, sizeof(mtxNameRow), "%s%s", name, MUTEX_SUFFIX_ROWLOCK);
-  xSnprintf(mtxNameTable, sizeof(mtxNameTable), "%s%s", name, MUTEX_SUFFIX_TABLELOCK);
-
   rc = rowlockOsMutexOpen(mtxNameRow, &rlMutex);
   if( rc ) goto ipc_init_failed;
   rc = rowlockOsMutexOpen(mtxNameTable, &tlMutex);

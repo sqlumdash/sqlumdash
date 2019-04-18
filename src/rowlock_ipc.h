@@ -40,7 +40,7 @@ typedef struct IpcHandle {
 #define IPC_CLASS_TABLE 1
 
 typedef struct IpcClass{
-  void (*xMapName)(char *buf, int bufSize, const char *name);
+  int (*xMapName)(char *buf, size_t bufSize, const char *name);
   u8 (*xIsInitialized)(void *pMap);
   void (*xInitArea)(void *pMap, u64 nElem);
   u64 (*xElemCount)(void *pMap);
@@ -61,6 +61,7 @@ u64 rowlockIpcCalcHash(u64 nBucket, unsigned char *buf, u32 len);
 int rowlockIpcSearch(void *pMap, u8 iClass, void *pTarget, u64 hash, u64 *pIdx);
 void rowlockIpcDelete(void *pMap, u8 iClass, u64 idxStart, u64 idxDel, u64 idxEnd);
 
+int rowlockStrCat(char *dest, size_t size, const char *src1, const char *src2);
 
 int sqlite3rowlockIpcInit(IpcHandle *pHandle, u64 nByteRow, u64 nByteTable, const void *owner, const char *name);
 void sqlite3rowlockIpcFinish(IpcHandle *pHandle);

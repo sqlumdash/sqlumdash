@@ -21,8 +21,8 @@
 
 extern IpcClass ipcClasses[];
 
-void rowClassMapName(char *buf, int bufSize, const char *name){
-  xSnprintf(buf, bufSize, "%s%s", name, MMAP_SUFFIX_ROWLOCK);
+int rowClassMapName(char *buf, size_t bufSize, const char *name){
+  return rowlockStrCat(buf, bufSize, name, MMAP_SUFFIX_ROWLOCK);
 }
 
 u8 rowClassIsInitialized(void *pMap){

@@ -40,7 +40,7 @@ typedef struct RowElement {
 } RowElement;
 
 
-void rowClassMapName(char *buf, int bufSize, const char *name);
+int rowClassMapName(char *buf, size_t bufSize, const char *name);
 u8 rowClassIsInitialized(void *pMap);
 void rowClassInitArea(void *pMap, u64 allocSize);
 u64 rowClassElemCount(void *pMap);

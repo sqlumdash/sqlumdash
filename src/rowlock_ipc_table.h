@@ -45,7 +45,7 @@ typedef struct CachedRowid {
   i64 rowid;
 } CachedRowid;
 
-void tableClassMapName(char *buf, int bufSize, const char *name);
+int tableClassMapName(char *buf, size_t bufSize, const char *name);
 u8 tableClassIsInitialized(void *pMap);
 void tableClassInitArea(void *pMap, u64 nElem);
 u64 tableClassElemCount(void *pMap);

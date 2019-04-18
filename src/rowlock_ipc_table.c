@@ -29,8 +29,8 @@ extern IpcClass ipcClasses[];
 #define MODE_UNLOCK_TRANS 0
 #define MODE_UNLOCK_STMT  1
 
-void tableClassMapName(char *buf, int bufSize, const char *name){
-  xSnprintf(buf, bufSize, "%s%s", name, MMAP_SUFFIX_TABLELOCK);
+int tableClassMapName(char *buf, size_t bufSize, const char *name){
+  return rowlockStrCat(buf, bufSize, name, MMAP_SUFFIX_TABLELOCK);
 }
 
 u8 tableClassIsInitialized(void *pMap){
