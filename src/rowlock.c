@@ -218,14 +218,19 @@ trans_btree_open_failed:
 */
 int sqlite3BtreeOpenAll(sqlite3_vfs *pVfs, const char *zFilename, sqlite3 *db, Btree **ppBtree, int flags, int vfsFlags){
   int rc;
+  Btree *pBtree;
 
-  rc = sqlite3BtreeOpenOriginal(pVfs, zFilename, db, ppBtree, flags, vfsFlags);
+  rc = sqlite3BtreeOpenOriginal(pVfs, zFilename, db, &pBtree, flags, vfsFlags);
   if( rc ) return rc;
 
-  rc = sqlite3TransBtreeOpen(*ppBtree, flags, vfsFlags);
-  if( rc ) sqlite3BtreeClose(*ppBtree);
+  rc = sqlite3TransBtreeOpen(pBtree, flags, vfsFlags);
+  if( rc ){
+    sqlite3BtreeClose(pBtree);
+    return rc;
+  }
 
-  return rc;
+  *ppBtree = pBtree;
+  return SQLITE_OK;
 }
 
 /*
