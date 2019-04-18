@@ -548,6 +548,8 @@ int sqlite3rowlockIpcLockTableAndAddHistory(Btree *p, int iTable, u8 eLock){
   int rc = SQLITE_OK;
   u8 prevLock = eLock;
 
+  if( !transBtreeIsUsed(p) ) return SQLITE_OK;
+
   rc = sqlite3rowlockIpcLockTable(&p->btTrans.ipcHandle, iTable, eLock, MODE_LOCK_NORMAL, &prevLock);
   if( rc ) return rc;
 
@@ -825,6 +827,9 @@ static int btreeKeyCompareCursors(BtCursor *pCur1, BtCursor *pCur2, i64 *pRet){
     /* Compare index keys. */
     xRecordCompare = sqlite3VdbeFindCompare(pIdxKey);
     assert( xRecordCompare );
+    /* For a WITHOUT ROWID table. nField is used as the number of key columns
+    ** in xRecordCompare. See the comment of btreeCursorMovetoKey(). */
+    pIdxKey->nField = pIdxKey->pKeyInfo->nKeyField;
     *pRet = xRecordCompare(nKey1, pKey1, pIdxKey);
 
 btree_idxkey_compare_done:
@@ -838,6 +843,41 @@ btree_idxkey_compare_done:
 /* Return 1 if thecursor is pointing valid record. */
 static int btreeCursorIsPointing(BtCursor *pCur){
   return pCur && pCur->eState==CURSOR_VALID;
+}
+
+/* 
+** Move a cursor on the basis of key info.
+** There are 3 paterns about a record structure.
+** Record data consists of record-key and record-value.
+** 1. pKey is NULL. This case is a normal table.
+*: 2. pKey has record-key. This case is an index.
+** 3. pKey has record-key and record-value. This case is a WITHOUT ROWID table.
+** For the pattern-3, this function compares record by only record-key.
+*/
+static int btreeCursorMovetoKey(BtCursor *pCur, const void *pKey, i64 nKey, int *pRet){
+  int rc = SQLITE_OK; /* Status code */
+  UnpackedRecord *pIdxKey = NULL; /* Unpacked index key */
+
+  if( pCur->pKeyInfo ){
+    /* Create unpacked record. */
+    pIdxKey = sqlite3VdbeAllocUnpackedRecord(pCur->pKeyInfo);
+    if( pIdxKey==0 ) return SQLITE_NOMEM_BKPT;
+
+    sqlite3VdbeRecordUnpack(pCur->pKeyInfo, (int)nKey, pKey, pIdxKey);
+    if( pIdxKey->nField==0 ){
+      sqlite3DbFree(pCur->pKeyInfo->db, pIdxKey);
+      return SQLITE_CORRUPT_BKPT;
+    }
+
+    /* For the pattern-3, the comparison is done by only record-key. */
+    pIdxKey->nField = pIdxKey->pKeyInfo->nKeyField;
+  }
+
+  /* Search for pCur. */
+  rc = sqlite3BtreeMovetoUnpacked(pCur, pIdxKey, nKey, 0, pRet);
+  if( pCur->pKeyInfo ) sqlite3DbFree(pCur->pKeyInfo->db, pIdxKey);
+
+  return rc;
 }
 
 /* This is called instead of sqlite3BtreeInsert. */
@@ -867,7 +907,7 @@ int sqlite3TransBtreeInsert(
   if( !(flags&OPFLAG_APPEND) && seekResult==0 ){
     if( cursorSharedIsUsed(pCurTrans) ){
       /* If a record exists in shared btree, it should be updated. */
-      rc = btreeMovetoOriginal(pCur, pX->pKey, pX->nKey, 0, &res);
+      rc = btreeCursorMovetoKey(pCur, pX->pKey, pX->nKey, &res);
       if( rc ) return rc;
       btFlags = BTREE_APPEND;
       if( res==0 ){
@@ -1346,34 +1386,19 @@ static int btreeIsDeleted(BtCursor *pCur, int *pRet){
     assert( nKey==(i64)(int)nKey );
 
     pKey = (char*)sqlite3DbMallocZero(pCur->pKeyInfo->db, nKey);
-    if( !pKey ){
-      rc = SQLITE_NOMEM_BKPT;
-      goto btree_is_deleted_done;
-    }
+    if( !pKey ) return SQLITE_NOMEM_BKPT;
 
     rc = sqlite3BtreePayloadOriginal(pCur, 0, (u32)nKey, pKey);
-    if( rc ) goto btree_is_deleted_done;
-
-    pIdxKey = sqlite3VdbeAllocUnpackedRecord(pCur->pKeyInfo);
-    if( pIdxKey==0 ) {
-      rc = SQLITE_NOMEM_BKPT;
-      goto btree_is_deleted_done;
-    }
-
-    sqlite3VdbeRecordUnpack(pCur->pKeyInfo, (int)nKey, pKey, pIdxKey);
-    if( pIdxKey->nField==0 ){
-      rc = SQLITE_CORRUPT_BKPT;
-      goto btree_is_deleted_done;
+    if( rc ){
+      sqlite3DbFree(pCur->pKeyInfo->db, pKey);
+      return rc;
     }
   }
 
   /* Search for pCurDel. */
-  rc = sqlite3BtreeMovetoUnpacked(pCurDel, pIdxKey, nKey, 0, pRet);
-  if( rc ) goto btree_is_deleted_done;
-
-btree_is_deleted_done:
+  rc = btreeCursorMovetoKey(pCurDel, pKey, nKey, pRet);
   if( pCur->pKeyInfo ) sqlite3DbFree(pCur->pKeyInfo->db, pKey);
-  if( pCur->pKeyInfo ) sqlite3DbFree(pCur->pKeyInfo->db, pIdxKey);
+
   return rc;
 }
 
@@ -1575,6 +1600,7 @@ int rowlockBtreeCacheReset(Btree *p){
   u8 needReset = 0;
   
   if( p->db->init.busy ) return SQLITE_OK;
+  if( p->db->nVdbeExec>1 ) return SQLITE_OK;
   if( !transBtreeIsUsed(p) ) return SQLITE_OK;
 
   /* Check schema version. */
@@ -1778,6 +1804,7 @@ int sqlite3BtreeCachedRowidSetByOpenCursor(BtCursor *pCur){
 */
 int sqlite3BtreeBeginTransAll(Btree *p, int wrflag, int *pSchemaVersion){
   int rc = SQLITE_OK;
+  int wrflagNew = wrflag;
 
   if( !p->db->init.busy && transBtreeIsUsed(p) ){
     u8 eLock = sqlite3rowlockIpcLockTableQuery(&p->btTrans.ipcHandle, MASTER_ROOT);
@@ -1797,20 +1824,14 @@ int sqlite3BtreeBeginTransAll(Btree *p, int wrflag, int *pSchemaVersion){
 
   if( p->sharable ){
     if( (p->pBt->btsFlags & BTS_READ_ONLY)!=0 && wrflag ) return SQLITE_READONLY;
-    rc = sqlite3BtreeBeginTransOriginal(p, 0, pSchemaVersion);
-  }else{
-    rc = sqlite3BtreeBeginTransOriginal(p, wrflag, pSchemaVersion);
+    /* If it is not BEGIN EXCLUSIVE, we start a read transaction of shared btree. */
+    if( wrflag<=1 ) wrflagNew = 0;
   }
+  rc = sqlite3BtreeBeginTransOriginal(p, wrflagNew, pSchemaVersion);
   if( rc ) return rc;
 
   if( transBtreeIsUsed(p) ){
-    BtreeTrans *pBtTrans = &p->btTrans;
-
-#if 1
     rc = sqlite3TransBtreeBeginTrans(p, wrflag);
-#else
-    rc = sqlite3BtreeBeginTransOriginal(pBtTrans->pBtree, wrflag, 0);
-#endif
     if( rc ) return rc;
   }
   return SQLITE_OK;
@@ -2040,7 +2061,7 @@ static int transBtreeCommitTableDelete(BtCursor *pCur, TransRootPage *pRootPage)
       pKey = NULL;
     }
 
-    rc = btreeMovetoOriginal(pCur, pKey, nKey, 0, &res);
+    rc = btreeCursorMovetoKey(pCur, pKey, nKey, &res);
     if( rc ) goto commit_table_delete_failed;
     assert( res==0 );
 
