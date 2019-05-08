@@ -67,8 +67,9 @@
     ** because statement rollback is required when record lock is
     ** occurred.
     */ \
-    if( pOp->p2 && db->inOpTrans==0 ){ \
+    if( pOp->p2 && db->inOpTrans==0 && p->usesStmtJournal==0 ){ \
       p->usesStmtJournal = 1; \
+      p->stmtJournalEnabled = 1; \
     } \
     /*
     ** Set inOpTrans flag in order to avoid to be called
@@ -154,6 +155,9 @@ static int sqlite3Step(Vdbe *p){ \
     ** So we do it here.
     */ \
     if( p->forceCommit ) sqlite3CloseSavepoints(p->db); \
+    /* Revert usesStmtJournal flag if it was changed by this query execution. */ \
+    if( p->stmtJournalEnabled) p->usesStmtJournal = 0; \
+    p->stmtJournalEnabled = 0; \
   } while(0)
 
 /* Macro for main.c */

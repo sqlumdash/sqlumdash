@@ -1370,13 +1370,14 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
  }
 diff -ru sqlite-src-3260000/src/vdbeInt.h SQLumDash3.26.0/src/vdbeInt.h
 --- sqlite-src-3260000/src/vdbeInt.h	2018-12-01 20:38:18.000000000 +0900
-+++ SQLumDash3.26.0/src/vdbeInt.h	2019-01-16 11:03:55.000000000 +0900
-@@ -421,6 +421,9 @@
++++ SQLumDash3.26.0/src/vdbeInt.h	2019-05-08 10:34:55.000000000 +0900
+@@ -421,6 +421,10 @@
    int nScan;              /* Entries in aScan[] */
    ScanStatus *aScan;      /* Scan definitions for sqlite3_stmt_scanstatus() */
  #endif
 +#ifndef SQLITE_OMIT_ROWLOCK
 +  u8 forceCommit;         /* True for statements that do commit forcibly by DDL */
++  u8 stmtJournalEnabled;  /* True if usesStmtJournal is enabled by the execution */
 +#endif
  };
  
