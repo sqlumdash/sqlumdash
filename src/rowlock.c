@@ -628,7 +628,16 @@ static int rowlockIsSequenceTable(BtCursor *pCur){
 static void rowlockJudgeSequenceTable(Btree *p, BtCursor *pCur){
   BtCursorTrans *pCurTrans = &pCur->btCurTrans;
   Schema *pSchema;
-  int iDb = rowlockBtreeToIndex(p->db, p);
+  int iDb;
+
+#ifdef SQLITE_TEST
+  if( p->db->nDb==0 ){
+    pCurTrans->isSeqTbl = 0;
+    return;
+  }
+#endif
+
+  iDb = rowlockBtreeToIndex(p->db, p);
 
   assert( sqlite3SchemaMutexHeld(p->db, iDb, 0) );
   pSchema = p->db->aDb[iDb].pSchema;
@@ -1607,6 +1616,9 @@ int rowlockBtreeCacheReset(Btree *p){
   if( p->db->init.busy ) return SQLITE_OK;
   if( p->db->nVdbeExec>1 ) return SQLITE_OK;
   if( !transBtreeIsUsed(p) ) return SQLITE_OK;
+#ifdef SQLITE_TEST
+  if( p->db->nDb==0 ) return SQLITE_OK;
+#endif
 
   /* Check schema version. */
   iDb = rowlockBtreeToIndex(p->db, p);
