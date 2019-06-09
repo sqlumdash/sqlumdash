@@ -14,6 +14,11 @@
 
 #include <Windows.h>
 
+/* Maximum length of file path.
+** The value is same as SQLITE_WIN32_MAX_PATH_BYTES defined in os_win.c.
+*/
+#define MAX_PATH_LEN (MAX_PATH*4)
+
 #define THREAD_LOCAL __declspec(thread)
 
 typedef DWORD PID; /* Data type of process ID */
@@ -25,7 +30,7 @@ typedef struct MUTEX_HANDLE {
 typedef struct MMAP_HANDLE {
   HANDLE hdlFile;
   HANDLE hdlMap;
-  char name[BUFSIZ];
+  char name[MAX_PATH_LEN];
 } MMAP_HANDLE;
 
 #define xSnprintf sprintf_s

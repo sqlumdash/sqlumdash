@@ -78,7 +78,7 @@ void sqlite3_rowlock_ipc_register_hash_func(int iClass, sqlite3_uint64(*xFunc)(v
 
 static int rowlockIpcMapName(u8 iClass, char *buf, size_t bufSize, const char *name){
   IpcClass *xClass = &ipcClasses[iClass];
-  char fullPath[BUFSIZ] = {0};
+  char fullPath[MAX_PATH_LEN] = {0};
   int rc;
   sqlite3_vfs *pVfs = sqlite3_vfs_find(0);
 
@@ -142,14 +142,14 @@ int sqlite3rowlockIpcInit(IpcHandle *pHandle, u64 nByteRow, u64 nByteTable, cons
   u64 nElemTable;
   u64 nAllocRow;
   u64 nAllocTable;
-  char mapNameRow[BUFSIZ] = {0};
-  char mapNameTable[BUFSIZ] = {0};
+  char mapNameRow[MAX_PATH_LEN] = {0};
+  char mapNameTable[MAX_PATH_LEN] = {0};
   MMAP_HANDLE hRecordLock = {0};
   MMAP_HANDLE hTableLock = {0};
   void *pRecordLock = NULL;
   void *pTableLock = NULL;
-  char mtxNameRow[BUFSIZ] = {0};
-  char mtxNameTable[BUFSIZ] = {0};
+  char mtxNameRow[MAX_PATH_LEN] = {0};
+  char mtxNameTable[MAX_PATH_LEN] = {0};
   MUTEX_HANDLE rlMutex = {0};
   MUTEX_HANDLE tlMutex = {0};
 

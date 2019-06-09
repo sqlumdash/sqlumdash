@@ -92,7 +92,7 @@ int rowlockOsMutexHeld(MUTEX_HANDLE *pMutex){
 */
 static int fileUser(const char *name, int *pUser){
   FILE *fd;
-  char cmd[BUFSIZ] = {0};
+  char cmd[MAX_PATH_LEN + 19] = {0}; /* 19 is the length of fuser command. */
   char buf[BUFSIZ] = {0};
   char *ret;
   int user = OPEN_NONE;
@@ -172,7 +172,7 @@ static int stretchFileSize(int fd, off_t size){
 int rowlockOsMmapOpen(u64 allocSize, const char *name, MMAP_HANDLE *phMap, void **ppMap){
   int fdMmap;
   int fdMng;
-  char mngName[BUFSIZ] = {0};
+  char mngName[MAX_PATH_LEN] = {0};
   int rc;
   long fileSize;
   void *pMap;
@@ -228,7 +228,7 @@ mmap_open_error1:
 void rowlockOsMmapClose(MMAP_HANDLE hMap, void *pMap){
   int rc;
   int user;
-  char name[BUFSIZ] = {0};
+  char name[MAX_PATH_LEN] = {0};
 
   munmap(pMap, 0);
   close(hMap.fdMmap);

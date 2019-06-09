@@ -49,7 +49,7 @@ int rowlockOsMutexOpen(const char *name, MUTEX_HANDLE *pMutex){
   HANDLE mtx;
   SECURITY_DESCRIPTOR secDesc;
   SECURITY_ATTRIBUTES secAttr;
-  char mtxName[BUFSIZ] = {0};
+  char mtxName[MAX_PATH_LEN] = {0};
 
   InitializeSecurityDescriptor(&secDesc,SECURITY_DESCRIPTOR_REVISION);
   SetSecurityDescriptorDacl(&secDesc, TRUE, 0, FALSE);	    

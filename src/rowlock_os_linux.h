@@ -14,6 +14,11 @@
 
 #include <pthread.h>
 
+/* Maximum length of file path.
+** The value is same as MAX_PATHNAME defined in os_unix.c.
+*/
+#define MAX_PATH_LEN 512
+
 #define THREAD_LOCAL __thread
 
 typedef pid_t PID;  /* Data type of process ID */
@@ -25,7 +30,7 @@ typedef struct MUTEX_HANDLE {
 typedef struct MMAP_HANDLE {
   int fdMmap; /* File descriptor of MMAP */
   int fdMng;  /* File descriptor of management file */
-  char name[BUFSIZ]; /* MMAP name */
+  char name[MAX_PATH_LEN]; /* MMAP name */
 } MMAP_HANDLE;
 
 /* The suffix of MMAP management file. */
