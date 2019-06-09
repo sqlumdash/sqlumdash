@@ -201,7 +201,10 @@ lock_record_end:
   return rc;
 }
 
-/* Return a obtaining lock type. */
+/* Check if a record is locked by another user or not.
+** Return SQLITE_LOCKED if row is locked by another user.
+** Return SQLITE_OK if row is not locked or lock owner is me.
+*/
 int sqlite3rowlockIpcLockRecordQuery(IpcHandle *pHandle, int iTable, i64 rowid){
   int rc = SQLITE_OK;
   IpcClass *xClass = &ipcClasses[IPC_CLASS_ROW];
@@ -218,6 +221,20 @@ int sqlite3rowlockIpcLockRecordQuery(IpcHandle *pHandle, int iTable, i64 rowid){
 
   rowlockOsMutexEnter(IpcRowLockMutex());
   rc = rowlockIpcSearch(pHandle->pRecordLock, IPC_CLASS_ROW, &rowlockTarget, hash, &idx);
+  if( rc==SQLITE_NOMEM ){
+    rc = SQLITE_OK;
+  }else if( rc==SQLITE_LOCKED ){
+    RowElement *pElem;
+    PID pid = rowlockGetPid();
+    pElem = (RowElement*)xClass->xElemGet(pMap, idx);
+    if( pElem->pid == pid && pElem->owner == pHandle->owner ){
+      /* Owner is myself. */
+      rc = SQLITE_OK;
+    }
+  }else{
+    /* No one have a lock. */
+    assert( rc==SQLITE_OK );
+  }
   rowlockOsMutexLeave(IpcRowLockMutex());
 
   return rc;
