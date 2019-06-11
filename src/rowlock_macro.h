@@ -83,6 +83,14 @@
 #define ROWLOCK_OP_TRANS_END() \
   db->inOpTrans--
 
+#define ROWLOCK_SAVEPOINT_CREATE() \
+  do { \
+    for(ii=0; ii<db->nDb; ii++){ \
+      rc = sqlite3TransBtreeSavepointCreate(db->aDb[ii].pBt, db->nStatement+db->nSavepoint); \
+      if( rc!=SQLITE_OK ) goto abort_due_to_error; \
+    } \
+  } while(0)
+
 #define ROWLOCK_CACHED_ROWID_FLAG_SET() \
   sqlite3BtreeCachedRowidFlagSet(pC->uc.pCursor, 1)
 
