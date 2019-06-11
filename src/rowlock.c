@@ -779,11 +779,20 @@ static int sqlite3TransBtreeCloseCursor(BtCursor *pCur){
   return SQLITE_OK;
 }
 
-/* Close sursors for both shared btree and transaction btree. */
+/* Close cursors for both shared btree and transaction btree. */
 int sqlite3BtreeCloseCursorAll(BtCursor *pCur){
   Btree *pBtree = pCur->pBtree;
   if( pBtree ) sqlite3TransBtreeCloseCursor(pCur);
   return sqlite3BtreeCloseCursorOriginal(pCur);
+}
+
+/* Clear an ephemeral table and reset cached rowid. */
+int sqlite3BtreeClearTableOfCursorAll(BtCursor *pCur){
+  int rc;
+  assert( !transBtreeCursorIsUsed(pCur) );
+  rc = sqlite3BtreeClearTableOfCursorOriginal(pCur);
+  if( rc==SQLITE_OK ) sqlite3BtreeCachedRowidSet(pCur, 0); 
+  return rc;
 }
 
 /* Compare key pointed by cursors. */
@@ -2035,7 +2044,7 @@ static int transBtreeCommitTableDelete(BtCursor *pCur, TransRootPage *pRootPage)
   char *buff = NULL;
 
   if( pRootPage->deleteAll ){
-    return sqlite3BtreeClearTableOfCursor(pCur);
+    return sqlite3BtreeClearTableOfCursorOriginal(pCur);
   }
 
   if( pRootPage->iDel==0 ){

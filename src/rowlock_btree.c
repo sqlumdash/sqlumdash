@@ -45,6 +45,9 @@ int sqlite3BtreeCursor(Btree *p, int iTable, int wrFlag, struct KeyInfo *pKeyInf
 int sqlite3BtreeCloseCursor(BtCursor *pCur){
   return sqlite3BtreeCloseCursorAll(pCur);
 }
+int sqlite3BtreeClearTableOfCursor(BtCursor *pCur){
+  return sqlite3BtreeClearTableOfCursorAll(pCur);
+}
 #ifndef NDEBUG
 int sqlite3BtreeCursorIsValid(BtCursor *pCur){
   return sqlite3BtreeCursorIsValidAll(pCur);

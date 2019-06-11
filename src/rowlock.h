@@ -79,6 +79,8 @@ int sqlite3TransBtreeClearTable(Btree *p, int iTable, int *pnChange);
 int sqlite3TransBtreeCursor(Btree *p, int iTable, int wrFlag, struct KeyInfo *pKeyInfo, BtCursor *pCur);
 int sqlite3BtreeCloseCursorAll(BtCursor *pCur);
 int sqlite3BtreeCloseCursorOriginal(BtCursor *pCur);
+int sqlite3BtreeClearTableOfCursorAll(BtCursor *pCur);
+int sqlite3BtreeClearTableOfCursorOriginal(BtCursor *pCur);
 int sqlite3TransBtreeFirst(BtCursor *pCur, int *pInsRes);
 int sqlite3TransBtreeLast(BtCursor *pCur, int *pInsRes);
 int sqlite3TransBtreeNext(BtCursor *pCur, int flags);
