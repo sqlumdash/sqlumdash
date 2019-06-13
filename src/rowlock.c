@@ -1460,7 +1460,11 @@ int sqlite3BtreeMovetoUnpackedAll(BtCursor *pCur, UnpackedRecord *pIdxKey,
 
   /* Check if the record pointed by pCur is valid. */
   pRootPage = (TransRootPage*)sqlite3HashI64Find(&pCur->pBtree->btTrans.rootPages, pCur->pgnoRoot);
-  assert( pRootPage );
+  if( !pRootPage ){
+    *pRes = res;
+    return SQLITE_OK;
+  }
+
   if( pRootPage->deleteAll ){
     pCur->eState = CURSOR_INVALID;
     res = -1;
