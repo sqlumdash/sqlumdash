@@ -67,21 +67,11 @@
     ** because statement rollback is required when record lock is
     ** occurred.
     */ \
-    if( pOp->p2 && db->inOpTrans==0 && p->usesStmtJournal==0 ){ \
+    if( pOp->p2 && db->inVtabSavepoint==0 && p->usesStmtJournal==0 ){ \
       p->usesStmtJournal = 1; \
       p->stmtJournalEnabled = 1; \
     } \
-    /*
-    ** Set inOpTrans flag in order to avoid to be called
-    ** sqlite3VtabSavepoint() recursively because 
-    ** the function might execute SQL and be called in
-    ** OP_Transaction again infinitely.
-    */ \
-    db->inOpTrans++; \
   } while(0)
-
-#define ROWLOCK_OP_TRANS_END() \
-  db->inOpTrans--
 
 #define ROWLOCK_SAVEPOINT_CREATE() \
   do { \
