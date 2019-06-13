@@ -144,6 +144,7 @@ int rowlockPagerExclusiveLock(Pager *pPager){
   do {
     rc = pagerLockDb(pPager, EXCLUSIVE_LOCK);
   }while( rc==SQLITE_BUSY && pPager->xBusyHandler(pPager->pBusyHandlerArg) );
+  return rc;
 }
 #endif /* SQLUMDASH_INCLUDED_FROM_PAGER_C || SQLITE_AMALGAMATION */
 #endif /* SQLITE_OMIT_ROWLOCK */
