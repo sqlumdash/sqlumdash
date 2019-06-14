@@ -1092,7 +1092,7 @@ diff -ru sqlite-src-3260000/src/vacuum.c SQLumDash3.26.0/src/vacuum.c
    /* Do not attempt to change the page size for a WAL database */
 diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
 --- sqlite-src-3260000/src/vdbe.c	2018-12-01 20:38:18.000000000 +0900
-+++ SQLumDash3.26.0/src/vdbe.c	2019-06-13 14:24:51.000000000 +0900
++++ SQLumDash3.26.0/src/vdbe.c	2019-06-14 13:08:35.000000000 +0900
 @@ -20,6 +20,9 @@
  */
  #include "sqliteInt.h"
@@ -1177,7 +1177,31 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
      if( rc!=SQLITE_OK ){
        goto abort_due_to_error;
      }
-@@ -4248,7 +4269,11 @@
+@@ -4029,7 +4050,11 @@
+   if( oc>=OP_SeekGE ){  assert( oc==OP_SeekGE || oc==OP_SeekGT );
+     if( res<0 || (res==0 && oc==OP_SeekGT) ){
+       res = 0;
++#ifndef SQLITE_OMIT_ROWLOCK
++      rc = sqlite3BtreeNextAll(pC->uc.pCursor, 0);
++#else
+       rc = sqlite3BtreeNext(pC->uc.pCursor, 0);
++#endif
+       if( rc!=SQLITE_OK ){
+         if( rc==SQLITE_DONE ){
+           rc = SQLITE_OK;
+@@ -4045,7 +4070,11 @@
+     assert( oc==OP_SeekLT || oc==OP_SeekLE );
+     if( res>0 || (res==0 && oc==OP_SeekLT) ){
+       res = 0;
++#ifndef SQLITE_OMIT_ROWLOCK
++      rc = sqlite3BtreePreviousAll(pC->uc.pCursor, 0);
++#else
+       rc = sqlite3BtreePrevious(pC->uc.pCursor, 0);
++#endif
+       if( rc!=SQLITE_OK ){
+         if( rc==SQLITE_DONE ){
+           rc = SQLITE_OK;
+@@ -4248,7 +4277,11 @@
        }
      }
    }
@@ -1189,7 +1213,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
    if( pFree ) sqlite3DbFreeNN(db, pFree);
    if( rc!=SQLITE_OK ){
      goto abort_due_to_error;
-@@ -4350,7 +4375,11 @@
+@@ -4350,7 +4383,11 @@
    assert( pCrsr!=0 );
    res = 0;
    iKey = pIn3->u.i;
@@ -1201,7 +1225,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
    assert( rc==SQLITE_OK || res==0 );
    pC->movetoTarget = iKey;  /* Used by OP_Delete */
    pC->nullRow = 0;
-@@ -4446,7 +4475,11 @@
+@@ -4446,7 +4483,11 @@
  #   define MAX_ROWID  (i64)( (((u64)0x7fffffff)<<32) | (u64)0xffffffff )
  #endif
  
@@ -1213,7 +1237,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
        rc = sqlite3BtreeLast(pC->uc.pCursor, &res);
        if( rc!=SQLITE_OK ){
          goto abort_due_to_error;
-@@ -4462,6 +4495,7 @@
+@@ -4462,6 +4503,7 @@
            v++;   /* IMP: R-29538-34987 */
          }
        }
@@ -1221,7 +1245,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
      }
  
  #ifndef SQLITE_OMIT_AUTOINCREMENT
-@@ -4505,8 +4539,13 @@
+@@ -4505,8 +4547,13 @@
        do{
          sqlite3_randomness(sizeof(v), &v);
          v &= (MAX_ROWID>>1); v++;  /* Ensure that v is greater than zero */
@@ -1235,7 +1259,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
              && (res==0)
              && (++cnt<100));
        if( rc ) goto abort_due_to_error;
-@@ -4520,6 +4559,7 @@
+@@ -4520,6 +4567,7 @@
      pC->cacheStatus = CACHE_STALE;
    }
    pOut->u.i = v;
@@ -1243,7 +1267,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
    break;
  }
  
-@@ -4594,6 +4634,7 @@
+@@ -4594,6 +4642,7 @@
      assert( memIsValid(pKey) );
      REGISTER_TRACE(pOp->p3, pKey);
      x.nKey = pKey->u.i;
@@ -1251,7 +1275,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
    }else{
      assert( pOp->opcode==OP_InsertInt );
      x.nKey = pOp->p3;
-@@ -4635,9 +4676,15 @@
+@@ -4635,9 +4684,15 @@
      x.nZero = 0;
    }
    x.pKey = 0;
@@ -1267,7 +1291,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
    pC->deferredMoveto = 0;
    pC->cacheStatus = CACHE_STALE;
  
-@@ -4766,7 +4813,11 @@
+@@ -4766,7 +4821,11 @@
    }
  #endif
  
@@ -1279,7 +1303,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
    pC->cacheStatus = CACHE_STALE;
    pC->seekResult = 0;
    if( rc ) goto abort_due_to_error;
-@@ -5152,7 +5203,11 @@
+@@ -5152,7 +5211,11 @@
      assert( pC->eCurType==CURTYPE_BTREE );
      pCrsr = pC->uc.pCursor;
      assert( pCrsr );
@@ -1291,7 +1315,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
  #ifndef SQLITE_OMIT_WINDOWFUNC
      if( pOp->p5 ) sqlite3BtreeSkipNext(pCrsr);
  #endif
-@@ -5256,7 +5311,11 @@
+@@ -5256,7 +5319,11 @@
         || pC->seekOp==OP_Last 
         || pC->seekOp==OP_NullRow);
  
@@ -1303,7 +1327,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
  next_tail:
    pC->cacheStatus = CACHE_STALE;
    VdbeBranchTaken(rc==SQLITE_OK,2);
-@@ -5333,10 +5392,17 @@
+@@ -5333,10 +5400,17 @@
      x.pKey = pIn2->z;
      x.aMem = aMem + pOp->p3;
      x.nMem = (u16)pOp->p4.i;
@@ -1321,7 +1345,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
      assert( pC->deferredMoveto==0 );
      pC->cacheStatus = CACHE_STALE;
    }
-@@ -5371,10 +5437,18 @@
+@@ -5371,10 +5445,18 @@
    r.nField = (u16)pOp->p3;
    r.default_rc = 0;
    r.aMem = &aMem[pOp->p2];
@@ -1340,7 +1364,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
      if( rc ) goto abort_due_to_error;
    }
    assert( pC->deferredMoveto==0 );
-@@ -5605,7 +5679,11 @@
+@@ -5605,7 +5687,11 @@
      iDb = pOp->p3;
      assert( DbMaskTest(p->btreeMask, iDb) );
      iMoved = 0;  /* Not needed.  Only to silence a warning. */
@@ -1352,7 +1376,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
      pOut->flags = MEM_Int;
      pOut->u.i = iMoved;
      if( rc ) goto abort_due_to_error;
-@@ -5646,9 +5724,15 @@
+@@ -5646,9 +5732,15 @@
    nChange = 0;
    assert( p->readOnly==0 );
    assert( DbMaskTest(p->btreeMask, pOp->p2) );
@@ -1368,7 +1392,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
    if( pOp->p3 ){
      p->nChange += nChange;
      if( pOp->p3>0 ){
-@@ -6770,7 +6854,11 @@
+@@ -6770,7 +6862,11 @@
      int p1 = pOp->p1; 
      assert( p1>=0 && p1<db->nDb );
      assert( DbMaskTest(p->btreeMask, p1) );
@@ -1380,7 +1404,7 @@ diff -ru sqlite-src-3260000/src/vdbe.c SQLumDash3.26.0/src/vdbe.c
      rc = sqlite3BtreeLockTable(db->aDb[p1].pBt, pOp->p2, isWriteLock);
      if( rc ){
        if( (rc&0xFF)==SQLITE_LOCKED ){
-@@ -6779,6 +6867,8 @@
+@@ -6779,6 +6875,8 @@
        }
        goto abort_due_to_error;
      }

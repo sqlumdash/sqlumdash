@@ -795,6 +795,31 @@ int sqlite3BtreeClearTableOfCursorAll(BtCursor *pCur){
   return rc;
 }
 
+/* Compare a key and an index key. */
+static int btreeKeyCompare(u32 nKey, void *pKey, UnpackedRecord *pIdxKey){
+  RecordCompare xRecordCompare;
+  int ret;
+
+  assert( pIdxKey );
+  xRecordCompare = sqlite3VdbeFindCompare(pIdxKey);
+  assert( xRecordCompare );
+
+  if( pIdxKey->nField>pIdxKey->pKeyInfo->nKeyField ){
+    /* 
+    ** For a WITHOUT ROWID table. nField is used as the number of key columns
+    ** in xRecordCompare. See the comment of btreeCursorMovetoKey().
+    */
+    u16 nField = pIdxKey->nField;
+    pIdxKey->nField = pIdxKey->pKeyInfo->nKeyField;
+    ret = xRecordCompare(nKey, pKey, pIdxKey);
+    pIdxKey->nField = nField; /* Restore. */
+  }else{
+    ret = xRecordCompare(nKey, pKey, pIdxKey);
+  }
+
+  return ret;
+}
+
 /* Compare key pointed by cursors. */
 static int btreeKeyCompareCursors(BtCursor *pCur1, BtCursor *pCur2, i64 *pRet){
   if( !pCur1->pKeyInfo ){
@@ -809,7 +834,6 @@ static int btreeKeyCompareCursors(BtCursor *pCur1, BtCursor *pCur2, i64 *pRet){
     UnpackedRecord *pIdxKey = NULL; /* Unpacked index key */
     void *pKey1, *pKey2;            /* Packed key */
     u32 nKey1, nKey2;               /* Size of pKey */
-    RecordCompare xRecordCompare;
 
     assert( pCur2->pKeyInfo );
     /* 
@@ -848,12 +872,7 @@ static int btreeKeyCompareCursors(BtCursor *pCur1, BtCursor *pCur2, i64 *pRet){
     }
 
     /* Compare index keys. */
-    xRecordCompare = sqlite3VdbeFindCompare(pIdxKey);
-    assert( xRecordCompare );
-    /* For a WITHOUT ROWID table. nField is used as the number of key columns
-    ** in xRecordCompare. See the comment of btreeCursorMovetoKey(). */
-    pIdxKey->nField = pIdxKey->pKeyInfo->nKeyField;
-    *pRet = xRecordCompare(nKey1, pKey1, pIdxKey);
+    *pRet = btreeKeyCompare(nKey1, pKey1, pIdxKey);
 
 btree_idxkey_compare_done:
     sqlite3DbFree(pCur1->pKeyInfo->db, pKey1);
@@ -1263,7 +1282,6 @@ static int btreeKeyCompareOfCursor(UnpackedRecord *pIdxKey, i64 intKey, BtCursor
     int rc;
     void *pKey;       /* Packed key */
     u32 nKey;         /* Size of pKey */
-    RecordCompare xRecordCompare;
 
     assert( pCur->pKeyInfo );
     /* 
@@ -1282,8 +1300,7 @@ static int btreeKeyCompareOfCursor(UnpackedRecord *pIdxKey, i64 intKey, BtCursor
     rc = sqlite3BtreePayloadOriginal(pCur, 0, nKey, pKey);
     if( rc ) goto btree_idxkey_compare_done;
 
-    xRecordCompare = sqlite3VdbeFindCompare(pIdxKey);
-    *pRes = xRecordCompare(nKey, pKey, pIdxKey);
+    *pRes = btreeKeyCompare(nKey, pKey, pIdxKey);
 
 btree_idxkey_compare_done:
     sqlite3DbFree(pCur->pKeyInfo->db, pKey);
@@ -1427,7 +1444,7 @@ static int btreeIsDeleted(BtCursor *pCur, int *pRet){
 
 /*
 ** Search both cursors(pCur and pCurIns) by the key.
-** If it is found in either of cursors, pRes is 0.
+** If it is found in either of cursors, pRes is 0 or pIndex->default_rc.
 ** If it is not found, pRes is not 0 (-1 or 1) and we judge which cursor should 
 ** be used.
 ** When sqlite3BtreeMovetoUnpackedAll() is called from OP_SeekXX (OP_SeekLT, 
@@ -1503,19 +1520,61 @@ int sqlite3BtreeMovetoUnpackedAll(BtCursor *pCur, UnpackedRecord *pIdxKey,
   rc = sqlite3BtreeMovetoUnpacked(pCurIns, pIdxKey, intKey, biasRight, &resIns);
   if( rc ) return rc;
 
+  /* Check if cursors are pointing to the index-key's record. */
+  if( pIdxKey && pIdxKey->default_rc!=0 ){
+    i64 pos;
+    /* 
+    ** Set default_rc to 0 temporally so that we can know the key is same or not
+    ** by confirming pos is 0.
+    */
+    i8 default_rc = pIdxKey->default_rc;
+    pIdxKey->default_rc = 0;
+    if( btreeCursorIsPointing(pCur) ){
+      rc = btreeKeyCompareOfCursor(pIdxKey, intKey, pCur, &pos);
+      res = (int)pos;
+    }
+    if( rc==SQLITE_OK && btreeCursorIsPointing(pCurIns) ){
+      rc = btreeKeyCompareOfCursor(pIdxKey, intKey, pCurIns, &pos);
+      resIns = (int)pos;
+    }
+    pIdxKey->default_rc = default_rc; /* Restore. */
+    if( rc ) return rc;
+  }
+
   /* Judge which cursor should be used. */
-  if( resIns==0 ){
-    /* Found in transaction btree. */
-    *pRes = 0;
-    pCurTrans->state = CURSOR_USE_TRANS;
-  }else if( res==0 ){
-    /* Found in shared btree. */
-    *pRes = 0;
-    pCurTrans->state = CURSOR_USE_SHARED;
+  if( resIns==0 || res==0 ){
+    if( resIns==0 ){
+      /* Found in transaction btree. */
+      pCurTrans->state = CURSOR_USE_TRANS;
+      /* Move another cursor(pCur) to the expected side. */
+      if( btreeCursorIsPointing(pCur) )
+        if( res<0 && (opcode==OP_SeekGE || opcode==OP_SeekGT) ){
+          rc = sqlite3BtreeNext(pCur, 0);
+        }else if( res>0 && (opcode==OP_SeekLE || opcode==OP_SeekLT) ){
+          rc = sqlite3BtreePrevious(pCur, 0);
+        }
+    }else{
+      /* Found in shared btree. */
+      pCurTrans->state = CURSOR_USE_SHARED;
+      /* Move another cursor(pCurIns) to the expected side. */
+      if( btreeCursorIsPointing(pCurIns) )
+        if( resIns<0 && (opcode==OP_SeekGE || opcode==OP_SeekGT) ){
+          rc = sqlite3BtreeNext(pCurIns, 0);
+        }else if( resIns>0 && (opcode==OP_SeekLE || opcode==OP_SeekLT) ){
+          rc = sqlite3BtreePrevious(pCurIns, 0);
+        }
+    }
+    if( rc!=SQLITE_OK && rc!=SQLITE_DONE ) return rc;
+    /* Set *pRes. */
+    if( pIdxKey ){
+      *pRes = pIdxKey->default_rc;
+    }else{
+      *pRes = 0;
+    }
   }else{
     /* 
      * Not found in both shared btree and transaction btree.
-     * Check which cursor should be used.
+     * Decide which cursor should be used.
      */
     if( btreeCursorIsPointing(pCur) ){
       if( btreeCursorIsPointing(pCurIns) ){
