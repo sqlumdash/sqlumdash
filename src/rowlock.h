@@ -122,6 +122,10 @@ int sqlite3BtreeRollbackOriginal(Btree *p, int tripCode, int writeOnly);
 int sqlite3BtreeRollbackAll(Btree *p, int tripCode, int writeOnly);
 int sqlite3BtreeUpdateMetaWithTransOpen(Btree *p, int idx, u32 iMeta);
 int sqlite3BtreeUpdateMetaOriginal(Btree *p, int idx, u32 iMeta);
+#ifndef SQLITE_OMIT_BTREECOUNT
+int sqlite3BtreeCountAll(BtCursor *pCur, i64 *pnEntry);
+int sqlite3BtreeCountOriginal(BtCursor *pCur, i64 *pnEntry);
+#endif
 int sqlite3BtreeLockTableOriginal(Btree *p, int iTab, u8 isWriteLock);
 void sqlite3BtreeUnlockStmtTableLock(sqlite3 *db);
 int sqlite3BtreeLockTableForRowLock(Btree *p, int iTab, u8 isWriteLock);

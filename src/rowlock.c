@@ -1635,6 +1635,43 @@ int sqlite3BtreeUpdateMetaWithTransOpen(Btree *p, int idx, u32 iMeta){
   return sqlite3BtreeUpdateMetaOriginal(p, idx, iMeta);
 }
 
+#ifndef SQLITE_OMIT_BTREECOUNT
+int sqlite3BtreeCountAll(BtCursor *pCur, i64 *pnEntry){
+  int rc = SQLITE_OK;
+  BtCursorTrans *pCurTrans = &pCur->btCurTrans;
+  TransRootPage *pRootPage;
+  i64 nEntry;
+  i64 nEntryIns;
+  i64 nEntryDel;
+
+  if( !transBtreeCursorIsUsed(pCur) ){
+    return sqlite3BtreeCountOriginal(pCur, pnEntry);
+  }
+
+  /* Get inserted record count in a transaction. */
+  rc = sqlite3BtreeCountOriginal(pCurTrans->pCurIns, &nEntryIns);
+  if( rc ) return rc;
+
+  pRootPage = (TransRootPage*)sqlite3HashI64Find(&pCur->pBtree->btTrans.rootPages, pCur->pgnoRoot);
+  assert( pRootPage );
+
+  if( pRootPage->deleteAll ){
+    /* In case all record in shared btree is deleted. */
+    *pnEntry = nEntryIns;
+  }else{
+    /* Get record count in shared btree. */
+    rc = sqlite3BtreeCountOriginal(pCur, &nEntry);
+    if( rc ) return rc;
+    /* Get deleted record count in a transaction. */
+    rc = sqlite3BtreeCountOriginal(pCurTrans->pCurDel, &nEntryDel);
+    if( rc ) return rc;
+    *pnEntry = nEntry + nEntryIns - nEntryDel;
+  }
+
+  return SQLITE_OK;
+}
+#endif
+
 /*
 ** Get a table lock.
 ** For sqlite_master:

@@ -467,7 +467,7 @@ diff -ru sqlite-src-3260000/src/backup.c SQLumDash3.26.0/src/backup.c
      /* Do not allow backup if the destination database is in WAL mode
 diff -ru sqlite-src-3260000/src/btree.c SQLumDash3.26.0/src/btree.c
 --- sqlite-src-3260000/src/btree.c	2018-12-01 20:38:18.000000000 +0900
-+++ SQLumDash3.26.0/src/btree.c	2019-06-11 17:18:48.000000000 +0900
++++ SQLumDash3.26.0/src/btree.c	2019-06-14 13:10:02.000000000 +0900
 @@ -165,7 +165,7 @@
  ** hold a write-lock on the schema table (root page 1). This is also
  ** acceptable.
@@ -674,6 +674,15 @@ diff -ru sqlite-src-3260000/src/btree.c SQLumDash3.26.0/src/btree.c
    BtShared *pBt = p->pBt;
    unsigned char *pP1;
    int rc;
+@@ -9203,7 +9204,7 @@
+ ** Otherwise, if an error is encountered (i.e. an IO error or database
+ ** corruption) an SQLite error code is returned.
+ */
+-int sqlite3BtreeCount(BtCursor *pCur, i64 *pnEntry){
++int sqlite3BtreeCountOriginal(BtCursor *pCur, i64 *pnEntry){
+   i64 nEntry = 0;                      /* Value to return in *pnEntry */
+   int rc;                              /* Return code */
+ 
 @@ -9937,7 +9938,7 @@
  /*
  ** Return non-zero if a transaction is active.

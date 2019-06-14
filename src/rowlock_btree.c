@@ -33,6 +33,13 @@ int sqlite3BtreeBeginTrans(Btree *p, int wrflag, int *pSchemaVersion){
 int sqlite3BtreeRollback(Btree *p, int tripCode, int writeOnly){
   return sqlite3BtreeRollbackAll(p, tripCode, writeOnly);
 }
+
+#ifndef SQLITE_OMIT_BTREECOUNT
+int sqlite3BtreeCount(BtCursor *pCur, i64 *pnEntry){
+  return sqlite3BtreeCountAll(pCur, pnEntry);
+}
+#endif
+
 int sqlite3BtreeBeginStmt(Btree *p, int iStatement){
   return sqlite3BtreeBeginStmtAll(p, iStatement);
 }
