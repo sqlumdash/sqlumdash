@@ -435,12 +435,12 @@ diff -ru sqlite-src-3260000/configure.ac SQLumDash3.26.0/configure.ac
  fi
 diff -ru sqlite-src-3260000/src/alter.c SQLumDash3.26.0/src/alter.c
 --- sqlite-src-3260000/src/alter.c	2018-12-01 20:38:18.000000000 +0900
-+++ SQLumDash3.26.0/src/alter.c	2019-01-16 11:03:54.000000000 +0900
++++ SQLumDash3.26.0/src/alter.c	2019-04-15 16:44:03.000000000 +0900
 @@ -159,6 +159,8 @@
    }
  #endif
  
-+  ROWLOCK_TABLE_LOCK();
++  ROWLOCK_TABLE_LOCK_FOR_ALTER();
 +
    /* Begin a transaction for database iDb. 
    ** Then modify the schema cookie (since the ALTER TABLE modifies the
@@ -449,11 +449,20 @@ diff -ru sqlite-src-3260000/src/alter.c SQLumDash3.26.0/src/alter.c
    pNew->addColOffset = pTab->addColOffset;
    pNew->nTabRef = 1;
  
-+  ROWLOCK_TABLE_LOCK();
++  ROWLOCK_TABLE_LOCK_FOR_ALTER();
 +
  exit_begin_add_column:
    sqlite3SrcListDelete(db, pSrc);
    return;
+@@ -553,6 +557,8 @@
+     goto exit_rename_column;
+   }
+ 
++  ROWLOCK_TABLE_LOCK_FOR_ALTER_IDB();
++
+   /* Do the rename operation using a recursive UPDATE statement that
+   ** uses the sqlite_rename_column() SQL function to compute the new
+   ** CREATE statement text for the sqlite_master table.
 diff -ru sqlite-src-3260000/src/backup.c SQLumDash3.26.0/src/backup.c
 --- sqlite-src-3260000/src/backup.c	2018-12-01 20:38:18.000000000 +0900
 +++ SQLumDash3.26.0/src/backup.c	2019-04-15 16:44:03.000000000 +0900
@@ -937,6 +946,25 @@ diff -ru sqlite-src-3260000/src/pager.c SQLumDash3.26.0/src/pager.c
    int rc = SQLITE_OK;                  /* Return code */
  
    /* This function is only called for rollback pagers in WRITER_DBMOD state. */
+diff -ru sqlite-src-3260000/src/pragma.c SQLumDash3.26.0/src/pragma.c
+--- sqlite-src-3260000/src/pragma.c	2018-12-01 20:38:18.000000000 +0900
++++ SQLumDash3.26.0/src/pragma.c	2019-04-15 16:44:03.000000000 +0900
+@@ -1821,6 +1821,7 @@
+       /* Write the specified cookie value */
+       static const VdbeOpList setCookie[] = {
+         { OP_Transaction,    0,  1,  0},    /* 0 */
++        ROWLOCK_SCVER_OPECODE_ADD,
+         { OP_SetCookie,      0,  0,  0},    /* 1 */
+       };
+       VdbeOp *aOp;
+@@ -1831,6 +1832,7 @@
+       aOp[1].p1 = iDb;
+       aOp[1].p2 = iCookie;
+       aOp[1].p3 = sqlite3Atoi(zRight);
++      ROWLOCK_SCVER_OPECODE_MAKE();
+     }else{
+       /* Read the specified cookie value */
+       static const VdbeOpList readCookie[] = {
 SQLumDash3.26.0/src のみに存在: rowlock.c
 SQLumDash3.26.0/src のみに存在: rowlock.h
 SQLumDash3.26.0/src のみに存在: rowlock_btree.c
