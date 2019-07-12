@@ -36,7 +36,7 @@
 
 /* Macro for alter.c and build.c */
 #define ROWLOCK_TABLE_LOCK() \
-  if( !isView ) sqlite3TableLock(pParse, iDb, pTab->tnum, 2, pTab->zName)
+  if( !isView && !IsVirtual(pTab) ) sqlite3TableLock(pParse, iDb, pTab->tnum, 2, pTab->zName)
 
 #define ROWLOCK_TABLE_LOCK_FOR_ALTER() \
   sqlite3TableLock(pParse, iDb, pTab->tnum, 2, pTab->zName)
