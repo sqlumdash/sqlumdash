@@ -993,10 +993,15 @@ int sqlite3TransBtreeInsert(
   if( rc ) return rc;
 
   rc = btreeMovetoOriginal(pCurIns, pX->pKey, pX->nKey, 0, &res);
-  pCurTrans->state = CURSOR_USE_SHARED | CURSOR_USE_TRANS;
+  if( rc ) return rc;
   assert( sqlite3BtreeCursorIsValid(pCurIns) );
 
-  return rc;
+  rc = btreeMovetoOriginal(pCur, pX->pKey, pX->nKey, 0, &res);
+  if( rc ) return rc;
+
+  pCurTrans->state = CURSOR_USE_SHARED | CURSOR_USE_TRANS;
+
+  return SQLITE_OK;
 }
 
 /*
