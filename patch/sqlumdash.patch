@@ -1487,7 +1487,7 @@ diff -ru sqlite-src-3260000/src/vdbeapi.c SQLumDash3.26.0/src/vdbeapi.c
  
 diff -ru sqlite-src-3260000/src/vdbeaux.c SQLumDash3.26.0/src/vdbeaux.c
 --- sqlite-src-3260000/src/vdbeaux.c	2018-12-01 20:38:18.000000000 +0900
-+++ SQLumDash3.26.0/src/vdbeaux.c	2019-01-16 11:03:55.000000000 +0900
++++ SQLumDash3.26.0/src/vdbeaux.c	2019-07-12 18:25:49.000000000 +0900
 @@ -14,6 +14,9 @@
  */
  #include "sqliteInt.h"
@@ -1507,19 +1507,22 @@ diff -ru sqlite-src-3260000/src/vdbeaux.c SQLumDash3.26.0/src/vdbeaux.c
        /* Whether or not a database might need a master journal depends upon
        ** its journal mode (among other things).  This matrix determines which
        ** journal modes use a master journal and which do not */
-@@ -2839,6 +2842,11 @@
+@@ -2839,6 +2842,14 @@
            }
            rc = SQLITE_CONSTRAINT_FOREIGNKEY;
          }else{ 
 +#ifndef SQLITE_OMIT_ROWLOCK
 +          rc = sqlite3BtreeBeginTransForCommit(db);
-+          if( rc ) return rc;
++          if( rc ){
++            sqlite3VdbeLeave(p);
++            return rc;
++          }
 +#endif
 +
            /* The auto-commit flag is true, the vdbe program was successful 
            ** or hit an 'OR FAIL' constraint and there are no deferred foreign
            ** key constraints to hold up the transaction. This means a commit 
-@@ -2913,6 +2921,10 @@
+@@ -2913,6 +2924,10 @@
      sqlite3VdbeLeave(p);
    }
  
@@ -1530,7 +1533,7 @@ diff -ru sqlite-src-3260000/src/vdbeaux.c SQLumDash3.26.0/src/vdbeaux.c
    /* We have successfully halted and closed the VM.  Record this fact. */
    if( p->pc>=0 ){
      db->nVdbeActive--;
-@@ -3219,7 +3231,11 @@
+@@ -3219,7 +3234,11 @@
    assert( p->deferredMoveto );
    assert( p->isTable );
    assert( p->eCurType==CURTYPE_BTREE );
