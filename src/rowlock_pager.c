@@ -14,6 +14,7 @@ static int assert_pager_state_original(Pager *p);
 static int pager_write_pagelist_original(Pager *pPager, PgHdr *pList);
 static void pager_reset(Pager *pPager);
 static int readDbPage(PgHdr *pPg);
+static int pagerBeginReadTransaction(Pager *pPager);
 static int pagerPagecount(Pager *pPager, Pgno *pnPage);
 static int pagerLockDb(Pager *pPager, int eLock);
 
@@ -120,10 +121,20 @@ int rowlockPagerCacheReset(Pager *pPager){
 
   /* Update dbSize variable. */
   if( pPager->tempFile==0 && pPager->eLock!=NO_LOCK){
-    /* pagerPagecount() requires PAGER_OPEN. So change state forcibly and
+    u8 eState;
+    /*
+    ** We call pagerBeginReadTransaction() in order to be pWal->readLock>=0
+    ** which sqlite3WalDbsize() called by pagerPagecount() requires.
+    */
+    if( pagerUseWal(pPager) ){
+      rc = pagerBeginReadTransaction(pPager);
+      if( rc ) return rc;
+    }
+    /*
+    ** pagerPagecount() requires PAGER_OPEN. So change state forcibly and
     ** revert to the original state after the function.
     */
-    u8 eState = pPager->eState;
+    eState = pPager->eState;
     pPager->eState = PAGER_OPEN;
     rc = pagerPagecount(pPager, &pPager->dbSize);
     pPager->eState = eState;
