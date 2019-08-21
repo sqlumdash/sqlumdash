@@ -210,8 +210,8 @@ void sqlite3rowlockIpcFinish(IpcHandle *pHandle){
   rowlockIpcClose(pHandle->hRecordLock, pHandle->pRecordLock, &pHandle->rlMutex);
   rowlockIpcClose(pHandle->hTableLock, pHandle->pTableLock, &pHandle->tlMutex);
 #else
-  rowlockIpcClose(pHandle->hRecordLock, pHandle->pRecordLock, &((TableMetaData*)pHandle->pTableLock)->mutex);
-  rowlockIpcClose(pHandle->hTableLock, pHandle->pTableLock, &((RowMetaData*)pHandle->pRecordLock)->mutex);
+  rowlockIpcClose(pHandle->hRecordLock, pHandle->pRecordLock, &((RowMetaData*)pHandle->pRecordLock)->mutex);
+  rowlockIpcClose(pHandle->hTableLock, pHandle->pTableLock, &((TableMetaData*)pHandle->pTableLock)->mutex);
 #endif
   memset(pHandle, 0, sizeof(IpcHandle));
 }
