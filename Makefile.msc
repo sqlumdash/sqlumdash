@@ -1,0 +1,51 @@
+#
+# nmake Makefile for SQLumDash
+#
+
+# PATCH command definition.
+!IFNDEF PATCH_CMD
+PATCH_CMD = patch
+!ENDIF
+
+
+SRC_FILES = \
+   src\funcNew.c \
+   src\funcNew.h \
+   src\rowlock.c \
+   src\rowlock.h \
+   src\rowlock_btree.c \
+   src\rowlock_hash.c \
+   src\rowlock_hash.h \
+   src\rowlock_ipc.c \
+   src\rowlock_ipc.h \
+   src\rowlock_ipc_row.c \
+   src\rowlock_ipc_row.h \
+   src\rowlock_ipc_table.c \
+   src\rowlock_ipc_table.h \
+   src\rowlock_macro.h \
+   src\rowlock_pager.c \
+   src\rowlock_savepoint.c \
+   src\rowlock_savepoint.h
+
+TOOL_FILES = \
+   tool\win\uniq.bat \
+   tool\rowlock_cleaner.c
+   
+   
+# This Makefile target builds all of SQLumDash binaries.
+all:	patch
+
+
+patch: $(SRC_FILES) $(TOOL_FILES)
+	$(PATCH_CMD) -p1 -d sqlite < patch\sqlumdash.patch
+	COPY src/* sqlite/src/
+	COPY -R tool/* sqlite/tool/
+
+build: patch
+	nmake /F Makefile.msc TOP=sqlite
+
+clean:
+	nmake /F Makefile.msc clean TOP=sqlite
+	del $(SRC_FILES)
+	del $TOOL_FILES)
+	patch -R -p1 -d sqlite < patch/sqlumdash.patch
