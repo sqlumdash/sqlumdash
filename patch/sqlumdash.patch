@@ -1,6 +1,6 @@
 diff -ru sqlite-src-3280000/Makefile.in SQLumDash3.28.0/Makefile.in
 --- sqlite-src-3280000/Makefile.in	2019-04-17 05:06:03.000000000 +0900
-+++ SQLumDash3.28.0/Makefile.in	2019-08-21 14:32:44.000000000 +0900
++++ SQLumDash3.28.0/Makefile.in	2019-08-21 14:50:23.000000000 +0900
 @@ -70,6 +70,9 @@
  #
  TLIBS = @LIBS@ $(LIBS)
@@ -74,7 +74,21 @@ diff -ru sqlite-src-3280000/Makefile.in SQLumDash3.28.0/Makefile.in
  # Source code for extensions
  #
  SRC += \
-@@ -478,6 +512,7 @@
+@@ -385,11 +419,13 @@
+   $(TOP)/src/test2.c \
+   $(TOP)/src/test3.c \
+   $(TOP)/src/test4.c \
++  $(TOP)/src/test4_new.c \
+   $(TOP)/src/test5.c \
+   $(TOP)/src/test6.c \
+   $(TOP)/src/test7.c \
+   $(TOP)/src/test8.c \
+   $(TOP)/src/test9.c \
++  $(TOP)/src/test_rowlock.c \
+   $(TOP)/src/test_autoext.c \
+   $(TOP)/src/test_async.c \
+   $(TOP)/src/test_backup.c \
+@@ -478,6 +514,7 @@
    $(TOP)/src/dbstat.c \
    $(TOP)/src/expr.c \
    $(TOP)/src/func.c \
@@ -82,7 +96,7 @@ diff -ru sqlite-src-3280000/Makefile.in SQLumDash3.28.0/Makefile.in
    $(TOP)/src/global.c \
    $(TOP)/src/insert.c \
    $(TOP)/src/wal.c \
-@@ -506,6 +541,16 @@
+@@ -506,6 +543,16 @@
    $(TOP)/src/wherecode.c \
    $(TOP)/src/whereexpr.c \
    $(TOP)/src/window.c \
@@ -99,7 +113,7 @@ diff -ru sqlite-src-3280000/Makefile.in SQLumDash3.28.0/Makefile.in
    parse.c \
    $(TOP)/ext/fts3/fts3.c \
    $(TOP)/ext/fts3/fts3_aux.c \
-@@ -522,6 +567,7 @@
+@@ -522,6 +569,7 @@
  HDR = \
     $(TOP)/src/btree.h \
     $(TOP)/src/btreeInt.h \
@@ -107,7 +121,7 @@ diff -ru sqlite-src-3280000/Makefile.in SQLumDash3.28.0/Makefile.in
     $(TOP)/src/hash.h \
     $(TOP)/src/hwtime.h \
     keywordhash.h \
-@@ -544,6 +590,16 @@
+@@ -544,6 +592,16 @@
     $(TOP)/src/vdbeInt.h \
     $(TOP)/src/vxworks.h \
     $(TOP)/src/whereInt.h \
@@ -124,7 +138,7 @@ diff -ru sqlite-src-3280000/Makefile.in SQLumDash3.28.0/Makefile.in
     config.h
  
  # Header files used by extensions
-@@ -626,7 +682,7 @@
+@@ -626,7 +684,7 @@
  # This is the default Makefile target.  The objects listed here
  # are what get build when you type just "make" with no arguments.
  #
@@ -133,7 +147,7 @@ diff -ru sqlite-src-3280000/Makefile.in SQLumDash3.28.0/Makefile.in
  
  Makefile: $(TOP)/Makefile.in
  	./config.status
-@@ -855,6 +911,9 @@
+@@ -855,6 +913,9 @@
  func.lo:	$(TOP)/src/func.c $(HDR)
  	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/func.c
  
@@ -143,7 +157,7 @@ diff -ru sqlite-src-3280000/Makefile.in SQLumDash3.28.0/Makefile.in
  global.lo:	$(TOP)/src/global.c $(HDR)
  	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/global.c
  
-@@ -1026,6 +1085,33 @@
+@@ -1026,6 +1087,33 @@
  window.lo:	$(TOP)/src/window.c $(HDR)
  	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/window.c
  
@@ -177,7 +191,7 @@ diff -ru sqlite-src-3280000/Makefile.in SQLumDash3.28.0/Makefile.in
  tclsqlite.lo:	$(TOP)/src/tclsqlite.c $(HDR)
  	$(LTCOMPILE) -DUSE_TCL_STUBS=1 -c $(TOP)/src/tclsqlite.c
  
-@@ -1082,6 +1168,14 @@
+@@ -1082,6 +1170,14 @@
  
  
  
@@ -186,13 +200,13 @@ diff -ru sqlite-src-3280000/Makefile.in SQLumDash3.28.0/Makefile.in
 +CLEANER_SRC = \
 +	$(TOP)/tool/rowlock_cleaner.c
 +
-+sqlumdash_cleaner:	 $(CLEANER_SRC) $(SQLITE3H)
++sqlumdash_cleaner:	 $(CLEANER_SRC) libsqlite3.la sqlite3.h
 +	$(TCC) -o sqlumdash_cleaner -I$(TOP) -L.libs -lsqlite3 $(OPT_FEATURE_FLAGS) $(OPTS) $(CLEANER_SRC)
 +
  # Rules to build the extension objects.
  #
  icu.lo:	$(TOP)/ext/icu/icu.c $(HDR) $(EXTHDR)
-@@ -1457,6 +1551,8 @@
+@@ -1457,6 +1553,8 @@
  	rm -f sqldiff sqldiff.exe
  	rm -f dbhash dbhash.exe
  	rm -f fts5.* fts5parse.*
@@ -1782,7 +1796,7 @@ diff -ru sqlite-src-3280000/tool/mksqlite3c-noext.tcl SQLumDash3.28.0/tool/mksql
     tokenize.c
 diff -ru sqlite-src-3280000/tool/mksqlite3c.tcl SQLumDash3.28.0/tool/mksqlite3c.tcl
 --- sqlite-src-3280000/tool/mksqlite3c.tcl	2019-04-17 05:06:03.000000000 +0900
-+++ SQLumDash3.28.0/tool/mksqlite3c.tcl	2019-08-21 13:34:53.000000000 +0900
++++ SQLumDash3.28.0/tool/mksqlite3c.tcl	2019-08-21 14:50:23.000000000 +0900
 @@ -127,6 +127,16 @@
     vxworks.h
     wal.h
@@ -1800,7 +1814,20 @@ diff -ru sqlite-src-3280000/tool/mksqlite3c.tcl SQLumDash3.28.0/tool/mksqlite3c.
  } {
    set available_hdr($hdr) 1
  }
-@@ -354,6 +364,7 @@
+@@ -212,7 +222,11 @@
+       } else {
+         # Comment out the entire line, replacing any nested comment
+         # begin/end markers with the harmless substring "**".
+-        puts $out "/* [string map [list /* ** */ **] $line] */"
++        if {$hdr=="pthread.h"} {
++          puts $out $line
++        } else {
++          puts $out "/* [string map [list /* ** */ **] $line] */"
++        }
+       }
+     } elseif {[regexp {^#ifdef __cplusplus} $line]} {
+       puts $out "#if 0"
+@@ -354,6 +368,7 @@
     callback.c
     delete.c
     func.c
@@ -1808,7 +1835,7 @@ diff -ru sqlite-src-3280000/tool/mksqlite3c.tcl SQLumDash3.28.0/tool/mksqlite3c.
     fkey.c
     insert.c
     legacy.c
-@@ -372,6 +383,20 @@
+@@ -372,6 +387,20 @@
     where.c
     window.c
  
