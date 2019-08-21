@@ -2511,4 +2511,185 @@ void sqlite3SetForceCommit(Vdbe *pVdbe){
   }
 }
 
+/*
+** This function is called when sqlite3_blob_open() is successful.
+** We memorize the opened blob handle in the database handle.
+*/
+int rowlockBlobOpened(sqlite3_blob *pBlob){
+  sqlite3 *db;
+  sqlite3_blob **aNew;
+  
+  db = rowlockIncrblobDb(pBlob);
+  aNew = db->aBlob;
+
+  if( db->aBlob==NULL ){
+    aNew = (sqlite3_blob**)sqlite3DbMallocZero(db, sizeof(sqlite3_blob*));
+  }else if( db->nBlob*(int)sizeof(sqlite3_blob*) > sqlite3DbMallocSize(db, db->aBlob) ){
+    aNew = (sqlite3_blob**)sqlite3DbRealloc(db, db->aBlob, db->nBlob*2*sizeof(sqlite3_blob*));
+  }
+  if( aNew==0 ) return SQLITE_NOMEM_BKPT;
+  db->aBlob = aNew;
+
+  db->aBlob[db->nBlob] = pBlob;
+  db->nBlob++;
+
+  return SQLITE_OK;
+}
+
+/*
+** This function is called when sqlite3_blob_close() is successful.
+** We remove the closed blob handle from the database handle.
+*/
+void rowlockBlobClosed(sqlite3 *db, sqlite3_blob *pBlob){
+  int i;
+  sqlite3_blob **aBlob = db->aBlob;
+
+  for(i=0; i<db->nBlob; i++){
+    if( aBlob[i]==pBlob ){
+      aBlob[i] = aBlob[db->nBlob-1];
+      memset(&aBlob[db->nBlob-1], 0, sizeof(sqlite3_blob*));
+      db->nBlob--;
+      break;
+    }
+  }
+}
+
+int sqlite3_blob_open(
+  sqlite3* db,            /* The database connection */
+  const char *zDb,        /* The attached database containing the blob */
+  const char *zTable,     /* The table containing the blob */
+  const char *zColumn,    /* The column containing the blob */
+  sqlite_int64 iRow,      /* The row containing the glob */
+  int wrFlag,             /* True -> read/write access, false -> read-only */
+  sqlite3_blob **ppBlob   /* Handle for accessing the blob returned here */
+){
+  sqlite3_blob *pBlob;
+  int rc;
+  
+  rc = sqlite3_blob_open_original(db, zDb, zTable, zColumn, iRow, wrFlag, &pBlob);
+  if( rc ) return rc;
+  rc = rowlockBlobOpened(pBlob);
+  if( rc ){
+    sqlite3_blob_close_original(pBlob);
+    return rc;
+  }
+
+  *ppBlob = pBlob;
+  return SQLITE_OK;
+}
+
+int sqlite3_blob_close(sqlite3_blob *pBlob){
+  int rc;
+  sqlite3 *db;
+  
+  if( !pBlob ) return SQLITE_OK;
+
+  /* Get db handle before closing blob handle. */
+  db = rowlockIncrblobDb(pBlob);
+  
+  rc = sqlite3_blob_close_original(pBlob);
+  if( rc ) return rc;
+
+  rowlockBlobClosed(db, pBlob);
+
+  return SQLITE_OK;
+}
+
+/* Free memory of pointers about blob handle in database handle. */
+void rowlockBlobClear(sqlite3 *db){
+  sqlite3DbFree(db, db->aBlob);
+  db->aBlob = NULL;
+  db->nBlob = 0;
+}
+
+/*
+** This function closes blob handles for force-commit by DDL.
+** We memorize information in order to reopen blob habdles.
+*/
+int rowlockBlobCloseHandles(sqlite3 *db, BlobHandle **ppBlobHandle){
+  int rc = SQLITE_OK;
+  BlobHandle *pBlobHandle;
+  sqlite3_blob *pBlobClose = NULL;
+  int i;
+
+  if( db->keepBlob || db->nBlob==0 ){
+    *ppBlobHandle = NULL;
+    return SQLITE_OK;
+  }
+
+  pBlobHandle = (BlobHandle*)sqlite3DbMallocZero(db, db->nBlob * sizeof(BlobHandle));
+  if( !pBlobHandle ) return SQLITE_NOMEM;
+
+  for(i=0; i<db->nBlob; i++){
+    sqlite3_blob *pBlob = db->aBlob[i];
+    if( !rowlockIncrblobVdbe(pBlob) ) continue;
+    /* Sharow copy. */
+    pBlobHandle[i].pBlob = pBlob;
+    pBlobHandle[i].zDb = rowlockIncrblobDbName(pBlob);
+    pBlobHandle[i].pTab = rowlockIncrblobTable(pBlob);
+    pBlobHandle[i].iCol = rowlockIncrblobColumnNumber(pBlob);
+    pBlobHandle[i].iRow = rowlockIncrblobRowNumber(pBlob);
+    pBlobHandle[i].wrflag = rowlockIncrblobFlag(pBlob);
+    /*
+    ** Close blob handle without freeing the original memory space of
+    ** sqlite3_blob structure.
+    */
+    pBlobClose = rowlockIncrblobMalloc(db);
+    if( !pBlobClose ) goto blob_close_handles;
+    rowlockIncrblobCopy(pBlob, pBlobClose);
+    db->keepBlob = 1;
+    rc = sqlite3_blob_close_original(pBlobClose);
+    db->keepBlob = 0;
+    if( rc ) goto blob_close_handles;
+    rowlockIncrblobStmtNull(pBlob);
+  }
+
+  *ppBlobHandle = pBlobHandle;
+  return SQLITE_OK;
+
+blob_close_handles:
+  sqlite3DbFree(db, pBlobClose);
+  sqlite3DbFree(db, pBlobHandle);
+  return rc;
+}
+
+/*
+** This function opens blob handles for force-commit by DDL.
+** Even if the opening is failed, it tries to open remaining handles.
+** Regardless of the success or failure, memory of pBlobHandle is freed.
+*/
+void rowlockBlobReopenHandles(sqlite3 *db, BlobHandle *pBlobHandle){
+  int i;
+
+  if( !pBlobHandle ) return;
+
+  for(i=0; i<db->nBlob; i++){
+    int rc;
+    const char *zDb, *zTable, *zColumn;
+    u16 iCol;
+    sqlite_int64 iRow;
+    int wrflag;
+    sqlite3_blob *pNew;
+
+    if( !pBlobHandle[i].pBlob ) continue;
+    
+    zDb = pBlobHandle[i].zDb;
+    zTable = pBlobHandle[i].pTab->zName;
+    iCol = pBlobHandle[i].iCol;
+    zColumn = pBlobHandle[i].pTab->aCol[iCol].zName;
+    iRow = pBlobHandle[i].iRow;
+    wrflag = pBlobHandle[i].wrflag;
+
+    db->keepBlob = 1;
+    rc = sqlite3_blob_open_original(db, zDb, zTable, zColumn, iRow, wrflag, &pNew);
+    db->keepBlob = 0;
+    if( rc==SQLITE_OK ){
+      rowlockIncrblobCopy(pNew, pBlobHandle[i].pBlob);
+      sqlite3DbFree(db, pNew);
+    }
+  }
+
+  sqlite3DbFree(db, pBlobHandle);
+}
+
 #endif /* SQLITE_OMIT_ROWLOCK */

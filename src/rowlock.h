@@ -62,6 +62,19 @@ typedef struct TransRootPage {
   struct KeyInfo *pKeyInfo;
 } TransRootPage;
 
+/*
+** Structure for storing information in order to recreate sqlite3_blob
+** structure by sqlite3_open_blob().
+*/
+typedef struct BlobHandle {
+  sqlite3_blob *pBlob;
+  const char *zDb;
+  Table *pTab;
+  u16 iCol;
+  sqlite_int64 iRow;
+  int wrflag;
+} BlobHandle;
+
 int rowlockInitialize();
 
 /*
@@ -169,6 +182,10 @@ void sqlite3SetForceCommit(Vdbe *p);
 int rowlockBtreeCacheReset(Btree *p);
 int sqlite3rowlockExclusiveLockAllTables(Btree *p);
 
+int rowlockBlobCloseHandles(sqlite3 *db, BlobHandle **ppBlobHandle);
+void rowlockBlobReopenHandles(sqlite3 *db, BlobHandle *pBlobHandle);
+void rowlockBlobClear(sqlite3 *db);
+
 /* rowlock_btree.c */
 int hasSharedCacheTableLock(Btree *pBtree, Pgno iRoot, int isIndex, int eLockType);
 
@@ -182,6 +199,22 @@ int rowlockPagerExclusiveLock(Pager *pPager);
 /* rowlock_savepoint.c */
 void sqlite3CloseSavepointsOriginal(sqlite3 *db);
 void sqlite3CloseSavepointsAll(sqlite3 *db);
+
+/* rowlock_vdbeblob.c */
+Vdbe *rowlockIncrblobVdbe(sqlite3_blob *pBlob);
+sqlite3 *rowlockIncrblobDb(sqlite3_blob *pBlob);
+const char *rowlockIncrblobDbName(sqlite3_blob *pBlob);
+Table *rowlockIncrblobTable(sqlite3_blob *pBlob);
+u16 rowlockIncrblobColumnNumber(sqlite3_blob *pBlob);
+sqlite_int64 rowlockIncrblobRowNumber(sqlite3_blob *pBlob);
+int rowlockIncrblobFlag(sqlite3_blob *pBlob);
+sqlite3_blob *rowlockIncrblobMalloc(sqlite3 *db);
+void rowlockIncrblobCopy(sqlite3_blob *src, sqlite3_blob *dest);
+void rowlockIncrblobStmtNull(sqlite3_blob *pBlob);
+int sqlite3_blob_open_original(sqlite3* db, const char *zDb,
+  const char *zTable, const char *zColumn,
+  sqlite_int64 iRow, int wrFlag, sqlite3_blob **ppBlob);
+int sqlite3_blob_close_original(sqlite3_blob *pBlob);
 
 #endif /* SQLITE_ROWLOCK_H */
 #endif /* SQLITE_OMIT_ROWLOCK */

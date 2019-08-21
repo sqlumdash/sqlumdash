@@ -145,6 +145,16 @@ static int sqlite3Step(Vdbe *p){ \
 }
 
 /* Macro for vdbeaux.c */
+#define ROWLOCK_BLOB_CLOSE(db,p) \
+    if( p->rc==SQLITE_OK && !sqlite3VtabInSync(db) && db->autoCommit && \
+      db->nVdbeWrite==(p->readOnly==0)+db->nBlob ){ \
+      rc = rowlockBlobCloseHandles(db, &pBlobHandle); \
+      if( rc ){ \
+        sqlite3VdbeLeave(p); \
+        return rc; \
+      } \
+    }
+
 #define ROWLOCK_VDBE_HALT(p) \
   do { \
     /* Release lock of tables for preventing COMMIT during statemet execution. */ \
@@ -156,6 +166,8 @@ static int sqlite3Step(Vdbe *p){ \
     /* Revert usesStmtJournal flag if it was changed by this query execution. */ \
     if( p->stmtJournalEnabled) p->usesStmtJournal = 0; \
     p->stmtJournalEnabled = 0; \
+    /* Reopen blob handles which are closed temporarily for force-commit. */ \
+    rowlockBlobReopenHandles(p->db, pBlobHandle); \
   } while(0)
 
 /* Macro for main.c */
@@ -174,6 +186,9 @@ static int sqlite3Step(Vdbe *p){ \
       sqlite3GlobalConfig.szMmapTableLock = va_arg(ap, sqlite3_uint64); \
       break; \
     }
+
+#define RWOLOCK_DB_CLOSE(db) \
+  rowlockBlobClear(db);
 
 /* Macro for global.c */
 #define ROWLOCK_DEFAULT_MMAP_ROW_SIZE    (1024 * 1024)

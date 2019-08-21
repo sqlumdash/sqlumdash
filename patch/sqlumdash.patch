@@ -1,6 +1,6 @@
 diff -ru sqlite-src-3260000/Makefile.in SQLumDash3.26.0/Makefile.in
 --- sqlite-src-3260000/Makefile.in	2018-12-01 20:38:18.000000000 +0900
-+++ SQLumDash3.26.0/Makefile.in	2019-06-13 14:24:51.000000000 +0900
++++ SQLumDash3.26.0/Makefile.in	2019-08-21 13:39:29.000000000 +0900
 @@ -70,6 +70,9 @@
  #
  TLIBS = @LIBS@ $(LIBS)
@@ -20,18 +20,19 @@ diff -ru sqlite-src-3260000/Makefile.in SQLumDash3.26.0/Makefile.in
           icu.lo insert.lo json1.lo legacy.lo loadext.lo \
           main.lo malloc.lo mem0.lo mem1.lo mem2.lo mem3.lo mem5.lo \
           memdb.lo memjournal.lo \
-@@ -191,7 +194,9 @@
+@@ -191,7 +194,10 @@
           update.lo userauth.lo upsert.lo util.lo vacuum.lo \
           vdbe.lo vdbeapi.lo vdbeaux.lo vdbeblob.lo vdbemem.lo vdbesort.lo \
           vdbetrace.lo wal.lo walker.lo where.lo wherecode.lo whereexpr.lo \
 -         window.lo utf.lo vtab.lo
 +         window.lo utf.lo vtab.lo \
 +         rowlock.lo rowlock_hash.lo rowlock_ipc.lo rowlock_ipc_row.lo \
-+         rowlock_ipc_table.lo rowlock_os_linux.lo rowlock_savepoint.lo
++         rowlock_ipc_table.lo rowlock_os_linux.lo rowlock_savepoint.lo \
++         rowlock_vdbeblob.lo rowlock_vtab.lo
  
  # Object files for the amalgamation.
  #
-@@ -227,6 +232,7 @@
+@@ -227,6 +233,7 @@
    $(TOP)/src/fault.c \
    $(TOP)/src/fkey.c \
    $(TOP)/src/func.c \
@@ -39,7 +40,7 @@ diff -ru sqlite-src-3260000/Makefile.in SQLumDash3.26.0/Makefile.in
    $(TOP)/src/global.c \
    $(TOP)/src/hash.c \
    $(TOP)/src/hash.h \
-@@ -308,6 +314,32 @@
+@@ -308,6 +315,33 @@
    $(TOP)/src/whereInt.h \
    $(TOP)/src/window.c
  
@@ -67,12 +68,13 @@ diff -ru sqlite-src-3260000/Makefile.in SQLumDash3.26.0/Makefile.in
 +  $(TOP)/src/rowlock_pager.c \
 +  $(TOP)/src/rowlock_savepoint.c \
 +  $(TOP)/src/rowlock_savepoint.h \
++  $(TOP)/src/rowlock_vdbeblob.c \
 +  $(TOP)/src/rowlock_vtab.c
 +  
  # Source code for extensions
  #
  SRC += \
-@@ -476,6 +508,7 @@
+@@ -476,6 +510,7 @@
    $(TOP)/src/dbstat.c \
    $(TOP)/src/expr.c \
    $(TOP)/src/func.c \
@@ -80,7 +82,7 @@ diff -ru sqlite-src-3260000/Makefile.in SQLumDash3.26.0/Makefile.in
    $(TOP)/src/global.c \
    $(TOP)/src/insert.c \
    $(TOP)/src/wal.c \
-@@ -504,6 +537,14 @@
+@@ -504,6 +539,16 @@
    $(TOP)/src/wherecode.c \
    $(TOP)/src/whereexpr.c \
    $(TOP)/src/window.c \
@@ -92,10 +94,12 @@ diff -ru sqlite-src-3260000/Makefile.in SQLumDash3.26.0/Makefile.in
 +  $(TOP)/src/rowlock_os_linux.c \
 +  $(TOP)/src/rowlock_os_win.c \
 +  $(TOP)/src/rowlock_savepoint.c \
++  $(TOP)/src/rowlock_vdbeblob.c \
++  $(TOP)/src/rowlock_vtab.c \
    parse.c \
    $(TOP)/ext/fts3/fts3.c \
    $(TOP)/ext/fts3/fts3_aux.c \
-@@ -520,6 +561,7 @@
+@@ -520,6 +565,7 @@
  HDR = \
     $(TOP)/src/btree.h \
     $(TOP)/src/btreeInt.h \
@@ -103,7 +107,7 @@ diff -ru sqlite-src-3260000/Makefile.in SQLumDash3.26.0/Makefile.in
     $(TOP)/src/hash.h \
     $(TOP)/src/hwtime.h \
     keywordhash.h \
-@@ -542,6 +584,16 @@
+@@ -542,6 +588,16 @@
     $(TOP)/src/vdbeInt.h \
     $(TOP)/src/vxworks.h \
     $(TOP)/src/whereInt.h \
@@ -120,7 +124,7 @@ diff -ru sqlite-src-3260000/Makefile.in SQLumDash3.26.0/Makefile.in
     config.h
  
  # Header files used by extensions
-@@ -617,7 +669,7 @@
+@@ -617,7 +673,7 @@
  # This is the default Makefile target.  The objects listed here
  # are what get build when you type just "make" with no arguments.
  #
@@ -129,7 +133,7 @@ diff -ru sqlite-src-3260000/Makefile.in SQLumDash3.26.0/Makefile.in
  
  Makefile: $(TOP)/Makefile.in
  	./config.status
-@@ -831,6 +883,9 @@
+@@ -831,6 +887,9 @@
  func.lo:	$(TOP)/src/func.c $(HDR)
  	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/func.c
  
@@ -139,7 +143,7 @@ diff -ru sqlite-src-3260000/Makefile.in SQLumDash3.26.0/Makefile.in
  global.lo:	$(TOP)/src/global.c $(HDR)
  	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/global.c
  
-@@ -1002,6 +1057,27 @@
+@@ -1002,6 +1061,33 @@
  window.lo:	$(TOP)/src/window.c $(HDR)
  	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/window.c
  
@@ -164,10 +168,16 @@ diff -ru sqlite-src-3260000/Makefile.in SQLumDash3.26.0/Makefile.in
 +rowlock_savepoint.lo:	$(TOP)/src/rowlock_savepoint.c $(HDR)
 +	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/rowlock_savepoint.c
 +
++rowlock_vdbeblob.lo:	$(TOP)/src/rowlock_vdbeblob.c $(HDR)
++	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/rowlock_vdbeblob.c
++
++rowlock_vtab.lo:	$(TOP)/src/rowlock_vtab.c $(HDR)
++	$(LTCOMPILE) $(TEMP_STORE) -c $(TOP)/src/rowlock_vtab.c
++
  tclsqlite.lo:	$(TOP)/src/tclsqlite.c $(HDR)
  	$(LTCOMPILE) -DUSE_TCL_STUBS=1 -c $(TOP)/src/tclsqlite.c
  
-@@ -1060,6 +1136,14 @@
+@@ -1060,6 +1146,14 @@
  
  
  
@@ -182,7 +192,7 @@ diff -ru sqlite-src-3260000/Makefile.in SQLumDash3.26.0/Makefile.in
  # Rules to build the extension objects.
  #
  icu.lo:	$(TOP)/ext/icu/icu.c $(HDR) $(EXTHDR)
-@@ -1427,6 +1511,8 @@
+@@ -1427,6 +1521,8 @@
  	rm -f sqldiff sqldiff.exe
  	rm -f dbhash dbhash.exe
  	rm -f fts5.* fts5parse.*
@@ -193,7 +203,7 @@ diff -ru sqlite-src-3260000/Makefile.in SQLumDash3.26.0/Makefile.in
  	rm -f config.h config.log config.status libtool Makefile sqlite3.pc
 diff -ru sqlite-src-3260000/Makefile.msc SQLumDash3.26.0/Makefile.msc
 --- sqlite-src-3260000/Makefile.msc	2018-12-01 20:38:18.000000000 +0900
-+++ SQLumDash3.26.0/Makefile.msc	2019-06-13 14:24:51.000000000 +0900
++++ SQLumDash3.26.0/Makefile.msc	2019-08-21 13:39:29.000000000 +0900
 @@ -951,8 +951,8 @@
  
  # Should the database engine be compiled threadsafe
@@ -233,18 +243,19 @@ diff -ru sqlite-src-3260000/Makefile.msc SQLumDash3.26.0/Makefile.msc
           icu.lo insert.lo json1.lo legacy.lo loadext.lo \
           main.lo malloc.lo mem0.lo mem1.lo mem2.lo mem3.lo mem5.lo \
           memdb.lo memjournal.lo \
-@@ -1215,7 +1220,9 @@
+@@ -1215,7 +1220,10 @@
           update.lo upsert.lo util.lo vacuum.lo \
           vdbeapi.lo vdbeaux.lo vdbeblob.lo vdbemem.lo vdbesort.lo \
           vdbetrace.lo wal.lo walker.lo where.lo wherecode.lo whereexpr.lo \
 -         window.lo utf.lo vtab.lo
 +         window.lo utf.lo vtab.lo \
 +         rowlock.lo rowlock_hash.lo rowlock_ipc.lo rowlock_ipc_row.lo \
-+         rowlock_ipc_table.lo rowlock_os_win.lo rowlock_savepoint.lo
++         rowlock_ipc_table.lo rowlock_os_win.lo rowlock_savepoint.lo \
++         rowlock_vdbeblob.lo rowlock_vtab.lo
  # <</mark>>
  
  # Object files for the amalgamation.
-@@ -1266,6 +1273,7 @@
+@@ -1266,6 +1274,7 @@
    $(TOP)\src\fault.c \
    $(TOP)\src\fkey.c \
    $(TOP)\src\func.c \
@@ -252,7 +263,7 @@ diff -ru sqlite-src-3260000/Makefile.msc SQLumDash3.26.0/Makefile.msc
    $(TOP)\src\global.c \
    $(TOP)\src\hash.c \
    $(TOP)\src\insert.c \
-@@ -1327,7 +1335,19 @@
+@@ -1327,7 +1336,20 @@
    $(TOP)\src\where.c \
    $(TOP)\src\wherecode.c \
    $(TOP)\src\whereexpr.c \
@@ -269,11 +280,12 @@ diff -ru sqlite-src-3260000/Makefile.msc SQLumDash3.26.0/Makefile.msc
 +  $(TOP)\src\rowlock_os_win.c \
 +  $(TOP)\src\rowlock_pager.c \
 +  $(TOP)\src\rowlock_savepoint.c \
++  $(TOP)\src\rowlock_vdbeblob.c \
 +  $(TOP)\src\rowlock_vtab.c
  
  # Core miscellaneous files.
  #
-@@ -1339,6 +1359,7 @@
+@@ -1339,6 +1361,7 @@
  SRC04 = \
    $(TOP)\src\btree.h \
    $(TOP)\src\btreeInt.h \
@@ -281,7 +293,7 @@ diff -ru sqlite-src-3260000/Makefile.msc SQLumDash3.26.0/Makefile.msc
    $(TOP)\src\hash.h \
    $(TOP)\src\hwtime.h \
    $(TOP)\src\msvc.h \
-@@ -1362,7 +1383,17 @@
+@@ -1362,7 +1385,17 @@
    $(TOP)\src\vdbeInt.h \
    $(TOP)\src\vxworks.h \
    $(TOP)\src\wal.h \
@@ -300,7 +312,7 @@ diff -ru sqlite-src-3260000/Makefile.msc SQLumDash3.26.0/Makefile.msc
  
  # Extension source code files, part 1.
  #
-@@ -1460,11 +1491,13 @@
+@@ -1460,11 +1493,13 @@
    $(TOP)\src\test2.c \
    $(TOP)\src\test3.c \
    $(TOP)\src\test4.c \
@@ -314,7 +326,7 @@ diff -ru sqlite-src-3260000/Makefile.msc SQLumDash3.26.0/Makefile.msc
    $(TOP)\src\test_autoext.c \
    $(TOP)\src\test_async.c \
    $(TOP)\src\test_backup.c \
-@@ -1578,7 +1611,16 @@
+@@ -1578,7 +1613,16 @@
     $(TOP)\src\vdbe.h \
     $(TOP)\src\vdbeInt.h \
     $(TOP)\src\vxworks.h \
@@ -332,7 +344,7 @@ diff -ru sqlite-src-3260000/Makefile.msc SQLumDash3.26.0/Makefile.msc
  
  # Header files used by extensions
  #
-@@ -1666,7 +1708,7 @@
+@@ -1666,7 +1710,7 @@
  # This is the default Makefile target.  The objects listed here
  # are what get build when you type just "make" with no arguments.
  #
@@ -341,7 +353,7 @@ diff -ru sqlite-src-3260000/Makefile.msc SQLumDash3.26.0/Makefile.msc
  
  # Targets that require the Tcl library.
  #
-@@ -1699,8 +1741,10 @@
+@@ -1699,8 +1743,10 @@
  sqlite3.def:	libsqlite3.lib
  	echo EXPORTS > sqlite3.def
  	dumpbin /all libsqlite3.lib \
@@ -354,7 +366,7 @@ diff -ru sqlite-src-3260000/Makefile.msc SQLumDash3.26.0/Makefile.msc
  # <</block2>>
  
  $(SQLITE3EXE):	shell.c $(SHELL_CORE_DEP) $(LIBRESOBJS) $(SHELL_CORE_SRC) $(SQLITE3H)
-@@ -1903,6 +1947,9 @@
+@@ -1903,6 +1949,9 @@
  func.lo:	$(TOP)\src\func.c $(HDR)
  	$(LTCOMPILE) $(CORE_COMPILE_OPTS) -c $(TOP)\src\func.c
  
@@ -364,7 +376,7 @@ diff -ru sqlite-src-3260000/Makefile.msc SQLumDash3.26.0/Makefile.msc
  global.lo:	$(TOP)\src\global.c $(HDR)
  	$(LTCOMPILE) $(CORE_COMPILE_OPTS) -c $(TOP)\src\global.c
  
-@@ -2074,6 +2121,27 @@
+@@ -2074,6 +2123,33 @@
  window.lo:	$(TOP)\src\window.c $(HDR)
  	$(LTCOMPILE) $(CORE_COMPILE_OPTS) -c $(TOP)\src\window.c
  
@@ -389,10 +401,16 @@ diff -ru sqlite-src-3260000/Makefile.msc SQLumDash3.26.0/Makefile.msc
 +rowlock_savepoint.lo:	$(TOP)\src\rowlock_savepoint.c $(HDR)
 +	$(LTCOMPILE) $(CORE_COMPILE_OPTS) -c $(TOP)\src\rowlock_savepoint.c
 +
++rowlock_vdbeblob.lo:	$(TOP)\src\rowlock_vdbeblob.c $(HDR)
++	$(LTCOMPILE) $(CORE_COMPILE_OPTS) -c $(TOP)\src\rowlock_vdbeblob.c
++
++rowlock_vtab.lo:	$(TOP)\src\rowlock_vtab.c $(HDR)
++	$(LTCOMPILE) $(CORE_COMPILE_OPTS) -c $(TOP)\src\rowlock_vtab.c
++
  tclsqlite.lo:	$(TOP)\src\tclsqlite.c $(HDR) $(SQLITE_TCL_DEP)
  	$(LTCOMPILE) $(NO_WARN) -DUSE_TCL_STUBS=1 -DBUILD_sqlite -I$(TCLINCDIR) -c $(TOP)\src\tclsqlite.c
  
-@@ -2145,6 +2213,15 @@
+@@ -2145,6 +2221,15 @@
  zlib:
  	pushd $(ZLIBDIR) && $(MAKE) /f win32\Makefile.msc clean $(ZLIBLIB) && popd
  
@@ -408,7 +426,7 @@ diff -ru sqlite-src-3260000/Makefile.msc SQLumDash3.26.0/Makefile.msc
  # Rules to build the extension objects.
  #
  icu.lo:	$(TOP)\ext\icu\icu.c $(HDR) $(EXTHDR)
-@@ -2525,4 +2602,5 @@
+@@ -2525,4 +2610,5 @@
  	del /Q showshm.exe sqlite3_checker.* sqlite3_expert.exe 2>NUL
  	del /Q fts5.* fts5parse.* 2>NUL
  	del /Q lsm.h lsm1.c 2>NUL
@@ -850,7 +868,7 @@ diff -ru sqlite-src-3260000/src/global.c SQLumDash3.26.0/src/global.c
  /*
 diff -ru sqlite-src-3260000/src/main.c SQLumDash3.26.0/src/main.c
 --- sqlite-src-3260000/src/main.c	2018-12-01 20:38:18.000000000 +0900
-+++ SQLumDash3.26.0/src/main.c	2019-06-13 14:22:22.000000000 +0900
++++ SQLumDash3.26.0/src/main.c	2019-08-21 13:34:53.000000000 +0900
 @@ -15,6 +15,9 @@
  ** accessed by users of the library.
  */
@@ -890,7 +908,16 @@ diff -ru sqlite-src-3260000/src/main.c SQLumDash3.26.0/src/main.c
    while( db->pSavepoint ){
      Savepoint *pTmp = db->pSavepoint;
      db->pSavepoint = pTmp->pNext;
-@@ -4350,3 +4359,9 @@
+@@ -1115,6 +1124,8 @@
+     return SQLITE_BUSY;
+   }
+ 
++  RWOLOCK_DB_CLOSE(db);
++
+ #ifdef SQLITE_ENABLE_SQLLOG
+   if( sqlite3GlobalConfig.xSqllog ){
+     /* Closing the handle. Fourth parameter is passed the value 2. */
+@@ -4350,3 +4361,9 @@
    return 0;
  }
  #endif /* SQLITE_OMIT_COMPILEOPTION_DIAGS */
@@ -1031,18 +1058,21 @@ diff -ru sqlite-src-3260000/src/sqlite.h.in SQLumDash3.26.0/src/sqlite.h.in
  #endif
 diff -ru sqlite-src-3260000/src/sqliteInt.h SQLumDash3.26.0/src/sqliteInt.h
 --- sqlite-src-3260000/src/sqliteInt.h	2018-12-01 20:38:18.000000000 +0900
-+++ SQLumDash3.26.0/src/sqliteInt.h	2019-06-13 14:24:51.000000000 +0900
-@@ -1493,6 +1493,9 @@
++++ SQLumDash3.26.0/src/sqliteInt.h	2019-08-21 13:40:42.000000000 +0900
+@@ -1493,6 +1493,12 @@
  #ifdef SQLITE_USER_AUTHENTICATION
    sqlite3_userauth auth;        /* User authentication information */
  #endif
 +#ifndef SQLITE_OMIT_ROWLOCK
 +  u8 inVtabSavepoint;
++  sqlite3_blob **aBlob;
++  int nBlob;
++  u8 keepBlob;
 +#endif
  };
  
  /*
-@@ -3421,6 +3424,10 @@
+@@ -3421,6 +3427,10 @@
    int bInternalFunctions;           /* Internal SQL functions are visible */
    int iOnceResetThreshold;          /* When to reset OP_Once counters */
    u32 szSorterRef;                  /* Min size in bytes to use sorter-refs */
@@ -1487,7 +1517,7 @@ diff -ru sqlite-src-3260000/src/vdbeapi.c SQLumDash3.26.0/src/vdbeapi.c
  
 diff -ru sqlite-src-3260000/src/vdbeaux.c SQLumDash3.26.0/src/vdbeaux.c
 --- sqlite-src-3260000/src/vdbeaux.c	2018-12-01 20:38:18.000000000 +0900
-+++ SQLumDash3.26.0/src/vdbeaux.c	2019-07-12 18:25:49.000000000 +0900
++++ SQLumDash3.26.0/src/vdbeaux.c	2019-08-21 13:34:53.000000000 +0900
 @@ -14,6 +14,9 @@
  */
  #include "sqliteInt.h"
@@ -1507,7 +1537,26 @@ diff -ru sqlite-src-3260000/src/vdbeaux.c SQLumDash3.26.0/src/vdbeaux.c
        /* Whether or not a database might need a master journal depends upon
        ** its journal mode (among other things).  This matrix determines which
        ** journal modes use a master journal and which do not */
-@@ -2839,6 +2842,14 @@
+@@ -2747,6 +2750,9 @@
+ int sqlite3VdbeHalt(Vdbe *p){
+   int rc;                         /* Used to store transient return codes */
+   sqlite3 *db = p->db;
++#ifndef SQLITE_OMIT_ROWLOCK
++  BlobHandle *pBlobHandle = NULL;
++#endif
+ 
+   /* This function contains the logic that determines if a statement or
+   ** transaction will be committed or rolled back as a result of the
+@@ -2820,6 +2826,8 @@
+       sqlite3VdbeCheckFk(p, 0);
+     }
+   
++    ROWLOCK_BLOB_CLOSE(db, p);
++
+     /* If the auto-commit flag is set and this is the only active writer 
+     ** VM, then we do either a commit or rollback of the current transaction. 
+     **
+@@ -2839,6 +2847,14 @@
            }
            rc = SQLITE_CONSTRAINT_FOREIGNKEY;
          }else{ 
@@ -1522,7 +1571,7 @@ diff -ru sqlite-src-3260000/src/vdbeaux.c SQLumDash3.26.0/src/vdbeaux.c
            /* The auto-commit flag is true, the vdbe program was successful 
            ** or hit an 'OR FAIL' constraint and there are no deferred foreign
            ** key constraints to hold up the transaction. This means a commit 
-@@ -2913,6 +2924,10 @@
+@@ -2913,6 +2929,10 @@
      sqlite3VdbeLeave(p);
    }
  
@@ -1533,7 +1582,7 @@ diff -ru sqlite-src-3260000/src/vdbeaux.c SQLumDash3.26.0/src/vdbeaux.c
    /* We have successfully halted and closed the VM.  Record this fact. */
    if( p->pc>=0 ){
      db->nVdbeActive--;
-@@ -3219,7 +3234,11 @@
+@@ -3219,7 +3239,11 @@
    assert( p->deferredMoveto );
    assert( p->isTable );
    assert( p->eCurType==CURTYPE_BTREE );
@@ -1545,6 +1594,37 @@ diff -ru sqlite-src-3260000/src/vdbeaux.c SQLumDash3.26.0/src/vdbeaux.c
    if( rc ) return rc;
    if( res!=0 ) return SQLITE_CORRUPT_BKPT;
  #ifdef SQLITE_TEST
+diff -ru sqlite-src-3260000/src/vdbeblob.c SQLumDash3.26.0/src/vdbeblob.c
+--- sqlite-src-3260000/src/vdbeblob.c	2018-12-01 20:38:18.000000000 +0900
++++ SQLumDash3.26.0/src/vdbeblob.c	2019-08-21 13:34:53.000000000 +0900
+@@ -116,7 +116,7 @@
+ /*
+ ** Open a blob handle.
+ */
+-int sqlite3_blob_open(
++int sqlite3_blob_open_original(
+   sqlite3* db,            /* The database connection */
+   const char *zDb,        /* The attached database containing the blob */
+   const char *zTable,     /* The table containing the blob */
+@@ -349,7 +349,7 @@
+ ** Close a blob handle that was previously created using
+ ** sqlite3_blob_open().
+ */
+-int sqlite3_blob_close(sqlite3_blob *pBlob){
++int sqlite3_blob_close_original(sqlite3_blob *pBlob){
+   Incrblob *p = (Incrblob *)pBlob;
+   int rc;
+   sqlite3 *db;
+@@ -504,4 +504,9 @@
+   return rc;
+ }
+ 
++#ifndef SQLITE_AMALGAMATION
++#define SQLUMDASH_INCLUDED_FROM_VDBEBLOB_C
++#include "rowlock_vdbeblob.c"
++#undef SQLUMDASH_INCLUDED_FROM_VDBEBLOB_C
++#endif
+ #endif /* #ifndef SQLITE_OMIT_INCRBLOB */
 diff -ru sqlite-src-3260000/src/vtab.c SQLumDash3.26.0/src/vtab.c
 --- sqlite-src-3260000/src/vtab.c	2018-12-01 20:38:18.000000000 +0900
 +++ SQLumDash3.26.0/src/vtab.c	2019-06-13 14:24:51.000000000 +0900
@@ -1617,7 +1697,7 @@ diff -ru sqlite-src-3260000/test/tester.tcl SQLumDash3.26.0/test/tester.tcl
            lappend leftover $a
 diff -ru sqlite-src-3260000/tool/mksqlite3c-noext.tcl SQLumDash3.26.0/tool/mksqlite3c-noext.tcl
 --- sqlite-src-3260000/tool/mksqlite3c-noext.tcl	2018-12-01 20:38:18.000000000 +0900
-+++ SQLumDash3.26.0/tool/mksqlite3c-noext.tcl	2019-06-13 14:24:51.000000000 +0900
++++ SQLumDash3.26.0/tool/mksqlite3c-noext.tcl	2019-08-21 13:34:53.000000000 +0900
 @@ -119,6 +119,16 @@
     vxworks.h
     wal.h
@@ -1643,7 +1723,7 @@ diff -ru sqlite-src-3260000/tool/mksqlite3c-noext.tcl SQLumDash3.26.0/tool/mksql
     fkey.c
     insert.c
     legacy.c
-@@ -353,6 +364,19 @@
+@@ -353,6 +364,20 @@
     where.c
     window.c
  
@@ -1658,6 +1738,7 @@ diff -ru sqlite-src-3260000/tool/mksqlite3c-noext.tcl SQLumDash3.26.0/tool/mksql
 +   rowlock_os_win.c
 +   rowlock_pager.c
 +   rowlock_savepoint.c
++   rowlock_vdbeblob.c
 +   rowlock_vtab.c
 +
     parse.c
@@ -1665,7 +1746,7 @@ diff -ru sqlite-src-3260000/tool/mksqlite3c-noext.tcl SQLumDash3.26.0/tool/mksql
     tokenize.c
 diff -ru sqlite-src-3260000/tool/mksqlite3c.tcl SQLumDash3.26.0/tool/mksqlite3c.tcl
 --- sqlite-src-3260000/tool/mksqlite3c.tcl	2018-12-01 20:38:18.000000000 +0900
-+++ SQLumDash3.26.0/tool/mksqlite3c.tcl	2019-06-13 14:24:51.000000000 +0900
++++ SQLumDash3.26.0/tool/mksqlite3c.tcl	2019-08-21 13:34:53.000000000 +0900
 @@ -127,6 +127,16 @@
     vxworks.h
     wal.h
@@ -1691,7 +1772,7 @@ diff -ru sqlite-src-3260000/tool/mksqlite3c.tcl SQLumDash3.26.0/tool/mksqlite3c.
     fkey.c
     insert.c
     legacy.c
-@@ -372,6 +383,19 @@
+@@ -372,6 +383,20 @@
     where.c
     window.c
  
@@ -1706,6 +1787,7 @@ diff -ru sqlite-src-3260000/tool/mksqlite3c.tcl SQLumDash3.26.0/tool/mksqlite3c.
 +   rowlock_os_win.c
 +   rowlock_pager.c
 +   rowlock_savepoint.c
++   rowlock_vdbeblob.c
 +   rowlock_vtab.c
 +
     parse.c
