@@ -63,9 +63,13 @@ struct HashElemI64 {
 ** Access routines.  To delete, insert a NULL pointer.
 */
 void sqlite3HashI64Init(HashI64*);
-void *sqlite3HashI64Insert(HashI64*, sqlite_int64 iKey, void *pData);
+void *sqlite3HashI64Insert(HashI64*, sqlite_int64 iKey, void *pData,
+                          void *allocator,
+                          void *(*xMalloc)(void*, sqlite3_int64),
+                          void (*xFree)(void*, void*));
 void *sqlite3HashI64Find(const HashI64*, sqlite_int64 iKey);
-void sqlite3HashI64Clear(HashI64*);
+void sqlite3HashI64Clear(HashI64*, void *allocator,
+                         void(*xFree)(void*, void*));
 
 /*
 ** Macros for looping over all elements of a hash table.  The idiom is

@@ -15,9 +15,10 @@
 #include <Windows.h>
 
 /* Maximum length of file path.
-** The value is same as SQLITE_WIN32_MAX_PATH_BYTES defined in os_win.c.
+** The value is same as SQLITE_WIN32_MAX_PATH defined in os_win.c because the
+** Unit is char
 */
-#define MAX_PATH_LEN (MAX_PATH*4)
+#define MAX_PATH_LEN (MAX_PATH)
 
 #define THREAD_LOCAL __declspec(thread)
 

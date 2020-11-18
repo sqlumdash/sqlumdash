@@ -417,7 +417,77 @@ execsql_test 4.8.4 {
   ) FROM t2 ORDER BY 1, 2;
 }
 
+execsql_float_test 4.9 {
+  SELECT 
+    rank() OVER win AS rank,
+    cume_dist() OVER win AS cume_dist FROM t1
+  WINDOW win AS (ORDER BY 1);
+}
 
+execsql_test 4.10 {
+  SELECT count(*) OVER (ORDER BY b) FROM t1
+}
+
+execsql_test 4.11 {
+  SELECT count(distinct a) FILTER (WHERE b='odd') FROM t1
+}
+
+==========
+
+execsql_test 5.0 {
+  DROP TABLE IF EXISTS t1;
+  CREATE TABLE t1(x INTEGER, y INTEGER);
+  INSERT INTO t1 VALUES(10, 1);
+  INSERT INTO t1 VALUES(20, 2);
+  INSERT INTO t1 VALUES(3, 3);
+  INSERT INTO t1 VALUES(2, 4);
+  INSERT INTO t1 VALUES(1, 5);
+}
+
+execsql_float_test 5.1 {
+  SELECT avg(x) OVER (ORDER BY y) AS z FROM t1 ORDER BY z;
+}
+
+==========
+
+execsql_test 6.0 {
+  DROP TABLE IF EXISTS t0;
+  CREATE TABLE t0(c0 INTEGER UNIQUE);
+  INSERT INTO t0 VALUES(0);
+}
+execsql_test 6.1 {
+  SELECT DENSE_RANK() OVER(), LAG(0) OVER() FROM t0;
+}
+execsql_test 6.2 {
+  SELECT * FROM t0 WHERE 
+      (0, t0.c0) IN (SELECT DENSE_RANK() OVER(), LAG(0) OVER() FROM t0);
+} 
+
+==========
+
+execsql_test 7.0 {
+  DROP TABLE IF EXISTS t1;
+  CREATE TABLE t1(a INTEGER, b INTEGER, c INTEGER);
+  INSERT INTO t1 VALUES(1, 1, 1);
+  INSERT INTO t1 VALUES(1, 2, 2);
+  INSERT INTO t1 VALUES(3, 3, 3);
+  INSERT INTO t1 VALUES(3, 4, 4);
+}
+
+execsql_test 7.1 {
+  SELECT c, sum(c) OVER win1 FROM t1 
+  WINDOW win1 AS (ORDER BY b)
+}
+
+execsql_test 7.2 {
+  SELECT c, sum(c) OVER win1 FROM t1 
+  WINDOW win1 AS (PARTITION BY 1 ORDER BY b)
+}
+
+execsql_test 7.3 {
+  SELECT c, sum(c) OVER win1 FROM t1 
+  WINDOW win1 AS (ORDER BY 1)
+}
 
 finish_test
 

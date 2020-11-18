@@ -138,7 +138,9 @@ static int fts5StorageGetStmt(
     }else{
       int f = SQLITE_PREPARE_PERSISTENT;
       if( eStmt>FTS5_STMT_LOOKUP ) f |= SQLITE_PREPARE_NO_VTAB;
+      p->pConfig->bLock++;
       rc = sqlite3_prepare_v3(pC->db, zSql, -1, f, &p->aStmt[eStmt], 0);
+      p->pConfig->bLock--;
       sqlite3_free(zSql);
       if( rc!=SQLITE_OK && pzErrMsg ){
         *pzErrMsg = sqlite3_mprintf("%s", sqlite3_errmsg(pC->db));
@@ -558,6 +560,8 @@ int sqlite3Fts5StorageDeleteAll(Fts5Storage *p){
   Fts5Config *pConfig = p->pConfig;
   int rc;
 
+  p->bTotalsValid = 0;
+
   /* Delete the contents of the %_data and %_docsize tables. */
   rc = fts5ExecPrintf(pConfig->db, 0,
       "DELETE FROM %Q.'%q_data';" 
@@ -609,10 +613,11 @@ int sqlite3Fts5StorageRebuild(Fts5Storage *p){
     for(ctx.iCol=0; rc==SQLITE_OK && ctx.iCol<pConfig->nCol; ctx.iCol++){
       ctx.szCol = 0;
       if( pConfig->abUnindexed[ctx.iCol]==0 ){
+        const char *zText = (const char*)sqlite3_column_text(pScan, ctx.iCol+1);
+        int nText = sqlite3_column_bytes(pScan, ctx.iCol+1);
         rc = sqlite3Fts5Tokenize(pConfig, 
             FTS5_TOKENIZE_DOCUMENT,
-            (const char*)sqlite3_column_text(pScan, ctx.iCol+1),
-            sqlite3_column_bytes(pScan, ctx.iCol+1),
+            zText, nText,
             (void*)&ctx,
             fts5StorageInsertCallback
         );
@@ -734,10 +739,11 @@ int sqlite3Fts5StorageIndexInsert(
   for(ctx.iCol=0; rc==SQLITE_OK && ctx.iCol<pConfig->nCol; ctx.iCol++){
     ctx.szCol = 0;
     if( pConfig->abUnindexed[ctx.iCol]==0 ){
+      const char *zText = (const char*)sqlite3_value_text(apVal[ctx.iCol+2]);
+      int nText = sqlite3_value_bytes(apVal[ctx.iCol+2]);
       rc = sqlite3Fts5Tokenize(pConfig, 
           FTS5_TOKENIZE_DOCUMENT,
-          (const char*)sqlite3_value_text(apVal[ctx.iCol+2]),
-          sqlite3_value_bytes(apVal[ctx.iCol+2]),
+          zText, nText,
           (void*)&ctx,
           fts5StorageInsertCallback
       );
@@ -906,10 +912,11 @@ int sqlite3Fts5StorageIntegrity(Fts5Storage *p){
           rc = sqlite3Fts5TermsetNew(&ctx.pTermset);
         }
         if( rc==SQLITE_OK ){
+          const char *zText = (const char*)sqlite3_column_text(pScan, i+1);
+          int nText = sqlite3_column_bytes(pScan, i+1);
           rc = sqlite3Fts5Tokenize(pConfig, 
               FTS5_TOKENIZE_DOCUMENT,
-              (const char*)sqlite3_column_text(pScan, i+1),
-              sqlite3_column_bytes(pScan, i+1),
+              zText, nText,
               (void*)&ctx,
               fts5StorageIntegrityCallback
           );

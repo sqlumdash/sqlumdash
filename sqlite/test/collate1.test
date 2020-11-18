@@ -400,5 +400,52 @@ do_execsql_test 7.2 {
     ORDER BY 1 COLLATE binary COLLATE binary COLLATE binary COLLATE nocase;
 } {abc DEF}
 
+# 2019-06-14
+# https://sqlite.org/src/info/f1580ba1b574e9e9
+#
+do_execsql_test 8.0 {
+  SELECT ' ' > char(20) COLLATE rtrim;
+} 0
+do_execsql_test 8.1 {
+  SELECT '' < char(20) COLLATE rtrim;
+} 1
+do_execsql_test 8.2 {
+  DROP TABLE IF EXISTS t0;
+  CREATE TABLE t0(c0 COLLATE RTRIM, c1 BLOB UNIQUE,
+                  PRIMARY KEY (c0, c1)) WITHOUT ROWID;
+  INSERT INTO t0 VALUES (123, 3), (' ', 1), ('	', 2), ('', 4);
+  SELECT * FROM t0 WHERE c1 = 1;
+} {{ } 1}
+
+# 2019-10-09
+# ALWAYS() macro fails following OOM
+# Problem detected by dbsqlfuzz.
+#
+do_execsql_test 9.0 {
+  CREATE TABLE t1(a, b);
+  CREATE TABLE t2(c, d);
+}
+
+do_faultsim_test 9.1 -faults oom* -body {
+  execsql {
+    SELECT * FROM (
+        SELECT b COLLATE nocase IN (SELECT c FROM t2) FROM t1
+    );
+  }
+} -test {
+  faultsim_test_result {0 {}}
+}
+
+# 2020-01-03 dbsqlfuzz find
+#
+reset_db
+do_catchsql_test 10.0 {
+  CREATE TABLE t1(a INTEGER PRIMARY KEY,b);
+  INSERT INTO t1 VALUES(0,NULL);
+  CREATE TABLE t2(x UNIQUE);
+  CREATE VIEW v1a(z,y) AS SELECT x COLLATE x FROM t2;
+  SELECT a,b,z,y,'' FROM t1 JOIN v1a ON b IS NOT FALSE;
+} {1 {no such collation sequence: x}}
+
 
 finish_test

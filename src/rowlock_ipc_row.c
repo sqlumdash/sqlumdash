@@ -9,6 +9,7 @@
 */
 #ifndef SQLITE_OMIT_ROWLOCK
 #include "sqliteInt.h"
+#include "rowlock.h"
 #include "rowlock_ipc.h"
 #include "rowlock_ipc_row.h"
 #include "rowlock_os.h"
@@ -312,8 +313,8 @@ static void sqlite3rowlockIpcUnlockRecordProcCore(IpcHandle *pHandle, PID pid, c
   assert( pHandle || name );
 
   if( !pHandle ){
-    int rc = sqlite3rowlockIpcInit(&ipcHandle, ROWLOCK_DEFAULT_MMAP_ROW_SIZE, ROWLOCK_DEFAULT_MMAP_TABLE_SIZE, NULL, name);
-    assert (rc==SQLITE_OK );
+    int rc = sqlite3rowlockIpcInit(&ipcHandle, sqlite3GlobalConfig.szMmapRowLock, sqlite3GlobalConfig.szMmapTableLock, NULL, name);
+    if( rc ) return;
     pHandle = &ipcHandle;
   }
 
@@ -321,6 +322,8 @@ static void sqlite3rowlockIpcUnlockRecordProcCore(IpcHandle *pHandle, PID pid, c
   pMeta = (RowMetaData*)pHandle->pRecordLock;
 
   rowlockOsMutexEnter(IpcRowLockMutex());
+
+  if( !pMap ) goto unlock_record_proc_end;
 
   pElement = (RowElement*)((char*)pHandle->pRecordLock+sizeof(RowMetaData));
   nElem = xClass->xElemCount(pMap);

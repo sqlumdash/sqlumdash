@@ -266,5 +266,66 @@ do_execsql_test 7.3 {
   SELECT coalesce(a,a), x FROM t1, t2 ORDER BY 1, 2;
 } {1 3 1 4 9 3 9 4}
 
+# 2019-08-22
+# Ticket https://www.sqlite.org/src/info/7e07a3dbf5a8cd26
+#
+do_execsql_test 8.1 {
+  DROP TABLE IF EXISTS t0;
+  CREATE TABLE t0 (c0);
+  INSERT INTO t0(c0) VALUES ('a');
+  SELECT LIKELY(t0.rowid) <= '0' FROM t0;
+} {1}
+do_execsql_test 8.2 {
+  SELECT * FROM t0 WHERE LIKELY(t0.rowid) <= '0';
+} {a}
+do_execsql_test 8.3 {
+  SELECT (t0.rowid) <= '0' FROM t0;
+} {0}
+do_execsql_test 8.4 {
+  SELECT * FROM t0 WHERE (t0.rowid) <= '0';
+} {}
+do_execsql_test 8.5 {
+  SELECT unlikely(t0.rowid) <= '0', likelihood(t0.rowid,0.5) <= '0' FROM t0;
+} {1 1}
+do_execsql_test 8.6 {
+  SELECT * FROM t0 WHERE unlikely(t0.rowid) <= '0';
+} {a}
+do_execsql_test 8.7 {
+  SELECT * FROM t0 WHERE likelihood(t0.rowid, 0.5) <= '0';
+} {a}
+do_execsql_test 8.8 {
+  SELECT unlikely(t0.rowid <= '0'),
+         likely(t0.rowid <= '0'),
+         likelihood(t0.rowid <= '0',0.5)
+    FROM t0;
+} {0 0 0}
+do_execsql_test 8.9 {
+  SELECT * FROM t0 WHERE unlikely(t0.rowid <= '0');
+} {}
+do_execsql_test 8.10 {
+  SELECT * FROM t0 WHERE likelihood(t0.rowid <= '0', 0.5);
+} {}
+
+# 2019-12-31: assertion fault discovered by Yongheng's fuzzer.
+# Harmless memIsValid() due to the code generators failure to
+# release the registers used by OP_ResultRow.
+#
+do_execsql_test 9.10 {
+  DROP TABLE IF EXISTS t1;
+  CREATE TABLE t1(a, b FLOAT);
+  INSERT INTO t1(a) VALUES(''),(NULL),('X'),(NULL);
+  SELECT coalesce(max(quote(a)),10) FROM t1 GROUP BY a;
+} {NULL '' 'X'}
+
+# 2020-06-14: assert() changed back into testcase()
+# ticket 9fb26d37cefaba40
+#
+reset_db
+do_execsql_test 10.1 {
+  CREATE TABLE a(b TEXT);  INSERT INTO a VALUES(0),(4),(9);
+  CREATE TABLE c(d NUM);
+  CREATE VIEW f(g, h) AS SELECT b, 0 FROM a UNION SELECT d, d FROM c;
+  SELECT g = g FROM f GROUP BY h;
+} {1}
 
 finish_test

@@ -14,6 +14,7 @@
 /* btreeInt.h should be included by .c file. */
 #include "rowlock_hash.h"
 #include "rowlock_ipc.h"
+#include "rowlock_psm_lock.h"
 #include "rowlock_savepoint.h"
 #include "sqliteInt.h"
 
@@ -22,10 +23,20 @@
 #define CURSOR_USE_SHARED 0x1
 #define CURSOR_USE_TRANS  0x2
 
+#define ROW_LOCK_CURSOR_IN_TRANS 0
+#define ROW_LOCK_CURSOR_IN_COMMIT 1
+
+/* Indicates a table type. */
+#define TABLE_NORMAL   0 /* Normal table */
+#define TABLE_SEQUENCE 1 /* sqlite_sequence table */
+#define INDEX_NORMAL   2 /* Index */
+#define INDEX_UNIQUE   3 /* Unique index or primary key (non integer) */
+
 typedef struct BtreeTrans {
   Btree *pBtree;                  /* Store inserted/deleted/updated records in a transaction */
   HashI64 rootPages;              /* mapping of root pages between shared btree and transaction btree */
   IpcHandle ipcHandle;            /* a handle of shared object storing row lock information */
+  PsmLockHandle psmHandle;        /* Handle of process shared memory */
   RowLockSavepoint lockSavepoint; /* row lock savepoint */
 } BtreeTrans;
 
@@ -34,7 +45,7 @@ typedef struct BtCursorTrans {
   BtCursor *pCurDel;
   int state;
   u8 deleteAll;
-  u8 isSeqTbl; /* True if the cursor is for sqlite_sequence table */
+  u8 type;
 } BtCursorTrans;
 
 /*
@@ -62,20 +73,11 @@ typedef struct TransRootPage {
   struct KeyInfo *pKeyInfo;
 } TransRootPage;
 
-/*
-** Structure for storing information in order to recreate sqlite3_blob
-** structure by sqlite3_open_blob().
-*/
-typedef struct BlobHandle {
-  sqlite3_blob *pBlob;
-  const char *zDb;
-  Table *pTab;
-  u16 iCol;
-  sqlite_int64 iRow;
-  int wrflag;
-} BlobHandle;
-
 int rowlockInitialize();
+
+int rowlockStrCat(char *dest, size_t size, const char *src1, const char *src2);
+void *rowlockDefaultMalloc(void *allocator, sqlite3_int64 n);
+void rowlockDefaultFree(void *allocator, void *p);
 
 /*
 ** sqlite3TransBtreeXXX() functions operate related in transaction btree.
@@ -87,7 +89,7 @@ int sqlite3BtreeOpenOriginal(sqlite3_vfs *pVfs, const char *zFilename, sqlite3 *
 int sqlite3BtreeCloseAll(Btree *p);
 int sqlite3BtreeCloseOriginal(Btree *p);
 int sqlite3TransBtreeBeginTrans(Btree *p, int wrflag);
-int sqlite3TransBtreeCreateTable(Btree *p, int iTable, struct KeyInfo *pKeyInfo, TransRootPage **ppTransRootPage);
+int sqlite3TransBtreeCreateTable(Btree *p, Pgno iTable, struct KeyInfo *pKeyInfo, TransRootPage **ppTransRootPage);
 int sqlite3TransBtreeClearTable(Btree *p, int iTable, int *pnChange);
 int sqlite3TransBtreeCursor(Btree *p, int iTable, int wrFlag, struct KeyInfo *pKeyInfo, BtCursor *pCur);
 int sqlite3BtreeCloseCursorAll(BtCursor *pCur);
@@ -127,39 +129,42 @@ int sqlite3BtreeBeginStmtOriginal(Btree *p, int iStatement);
 int hasSharedCacheTableLockAll(Btree *pBtree, Pgno iRoot, int isIndex, int eLockType);
 int hasSharedCacheTableLockOriginal(Btree *pBtree, Pgno iRoot, int isIndex, int eLockType);
 int sqlite3BtreeLockTableOriginal(Btree *p, int iTab, u8 isWriteLock);
-int sqlite3BtreeCreateTableWithTransOpen(Btree *p, int *piTable, int flags);
-int sqlite3BtreeCreateTableOriginal(Btree *p, int *piTable, int flags);
-int sqlite3BtreeDropTableOriginal(Btree *p, int iTable, int *piMoved);
-int sqlite3BtreeDropTableAll(Btree *p, int iTable, int *piMoved);
+int sqlite3BtreeCreateTableWithTransOpen(Btree *p, Pgno *piTable, int flags);
+int sqlite3BtreeCreateTableOriginal(Btree *p, Pgno *piTable, int flags);
+int sqlite3BtreeDropTableOriginal(Btree *p, Pgno iTable, int *piMoved);
+int sqlite3BtreeDropTableAll(Btree *p, Pgno iTable, int *piMoved);
 int sqlite3BtreeRollbackOriginal(Btree *p, int tripCode, int writeOnly);
 int sqlite3BtreeRollbackAll(Btree *p, int tripCode, int writeOnly);
 int sqlite3BtreeUpdateMetaWithTransOpen(Btree *p, int idx, u32 iMeta);
 int sqlite3BtreeUpdateMetaOriginal(Btree *p, int idx, u32 iMeta);
 #ifndef SQLITE_OMIT_BTREECOUNT
-int sqlite3BtreeCountAll(BtCursor *pCur, i64 *pnEntry);
-int sqlite3BtreeCountOriginal(BtCursor *pCur, i64 *pnEntry);
+int sqlite3BtreeCountAll(sqlite3 *db, BtCursor *pCur, i64 *pnEntry);
+int sqlite3BtreeCountOriginal(sqlite3 *db, BtCursor *pCur, i64 *pnEntry);
 #endif
 int sqlite3BtreeLockTableOriginal(Btree *p, int iTab, u8 isWriteLock);
 void sqlite3BtreeUnlockStmtTableLock(sqlite3 *db);
 int sqlite3BtreeLockTableForRowLock(Btree *p, int iTab, u8 isWriteLock);
-int sqlite3BtreeSetVersionWithTransOpen(Btree *pBtree, int iVersion);
-int sqlite3BtreeSetVersionOriginal(Btree *pBtree, int iVersion);
 int sqlite3BtreeIncrVacuumForRowLock(Btree *p);
 int sqlite3BtreeIncrVacuumOriginal(Btree *p);
 const void *sqlite3BtreePayloadFetchOriginal(BtCursor *pCur, u32 *pAmt);
 const void *sqlite3BtreePayloadFetchAll(BtCursor *pCur, u32 *pAmt);
+int sqlite3VdbeMemFromBtreeOriginal(BtCursor *pCur, u32 offset, u32 amt, Mem *pMem);
+int sqlite3VdbeMemFromBtreeAll(BtCursor *pCur, u32 offset, u32 amt, Mem *pMem);
 int sqlite3BtreePayloadOriginal(BtCursor *pCur, u32 offset, u32 amt, void *pBuf);
 int sqlite3BtreePayloadAll(BtCursor *pCur, u32 offset, u32 amt, void *pBuf);
 u32 sqlite3BtreePayloadSizeOriginal(BtCursor *pCur);
 u32 sqlite3BtreePayloadSizeAll(BtCursor *pCur);
 i64 sqlite3BtreeIntegerKeyOriginal(BtCursor *pCur);
 i64 sqlite3BtreeIntegerKeyAll(BtCursor *pCur);
-int sqlite3BtreeCursorOriginal(Btree *p, int iTable, int wrFlag, struct KeyInfo *pKeyInfo, BtCursor *pCur);
-int sqlite3BtreeCursorAll(Btree *p, int iTable, int wrFlag, struct KeyInfo *pKeyInfo, BtCursor *pCur, int flag);
+int sqlite3BtreeCursorOriginal(Btree *p, Pgno iTable, int wrFlag, struct KeyInfo *pKeyInfo, BtCursor *pCur);
+int sqlite3BtreeCursorAll(Btree *p, Pgno iTable, int wrFlag, struct KeyInfo *pKeyInfo, BtCursor *pCur, int flag);
 int sqlite3BtreeCursorRestoreOriginal(BtCursor *pCur, int *pDifferentRow);
 int sqlite3BtreeCursorRestoreAll(BtCursor *pCur, int *pDifferentRow);
 int sqlite3BtreeCursorHasMovedOriginal(BtCursor *pCur);
 int sqlite3BtreeCursorHasMovedAll(BtCursor *pCur);
+/* For Blob Write feature */
+int sqlite3BtreePutDataAll(BtCursor*, u32 offset, u32 amt, void*);
+int sqlite3BtreePutDataOriginal(BtCursor*, u32 offset, u32 amt, void*);
 #ifndef NDEBUG
 int sqlite3BtreeCursorIsValidOriginal(BtCursor *pCur);
 int sqlite3BtreeCursorIsValidAll(BtCursor *pCur);
@@ -169,6 +174,7 @@ void sqlite3BtreeSkipNextOriginal(BtCursor *pCur);
 void sqlite3BtreeSkipNextAll(BtCursor *pCur);
 #endif /* SQLITE_OMIT_WINDOWFUNC */
 int sqlite3BtreeMovetoUnpackedAll(BtCursor *pCur, UnpackedRecord *pIdxKey, i64 intKey, int biasRight, int *pRes, int opcode);
+int sqlite3BtreeNoConflict(BtCursor *pCur, UnpackedRecord *pIdxKey, int file_format, int *pRes);
 
 
 int btreeMovetoOriginal(BtCursor *pCur, const void *pKey, i64 nKey, int bias, int *pRes);
@@ -182,10 +188,6 @@ void sqlite3SetForceCommit(Vdbe *p);
 int rowlockBtreeCacheReset(Btree *p);
 int sqlite3rowlockExclusiveLockAllTables(Btree *p);
 
-int rowlockBlobCloseHandles(sqlite3 *db, BlobHandle **ppBlobHandle);
-void rowlockBlobReopenHandles(sqlite3 *db, BlobHandle *pBlobHandle);
-void rowlockBlobClear(sqlite3 *db);
-
 /* rowlock_btree.c */
 int hasSharedCacheTableLock(Btree *pBtree, Pgno iRoot, int isIndex, int eLockType);
 
@@ -195,26 +197,20 @@ int rowlockPagerCheckDbFileVers(Pager *pPager, u8 *needReset);
 int rowlockPagerCacheReset(Pager *pPager);
 int rowlockPagerReloadDbPage(PgHdr *pPg, Pager *pPager);
 int rowlockPagerExclusiveLock(Pager *pPager);
+int rowlockPagerCheckLockAvailable(Pager *pPager, u8 lockType);
 
 /* rowlock_savepoint.c */
 void sqlite3CloseSavepointsOriginal(sqlite3 *db);
 void sqlite3CloseSavepointsAll(sqlite3 *db);
 
-/* rowlock_vdbeblob.c */
-Vdbe *rowlockIncrblobVdbe(sqlite3_blob *pBlob);
-sqlite3 *rowlockIncrblobDb(sqlite3_blob *pBlob);
-const char *rowlockIncrblobDbName(sqlite3_blob *pBlob);
-Table *rowlockIncrblobTable(sqlite3_blob *pBlob);
-u16 rowlockIncrblobColumnNumber(sqlite3_blob *pBlob);
-sqlite_int64 rowlockIncrblobRowNumber(sqlite3_blob *pBlob);
-int rowlockIncrblobFlag(sqlite3_blob *pBlob);
-sqlite3_blob *rowlockIncrblobMalloc(sqlite3 *db);
-void rowlockIncrblobCopy(sqlite3_blob *src, sqlite3_blob *dest);
-void rowlockIncrblobStmtNull(sqlite3_blob *pBlob);
-int sqlite3_blob_open_original(sqlite3* db, const char *zDb,
-  const char *zTable, const char *zColumn,
-  sqlite_int64 iRow, int wrFlag, sqlite3_blob **ppBlob);
-int sqlite3_blob_close_original(sqlite3_blob *pBlob);
+/* blob handle */
+void sqlite3BtreeIncrblobCursorAll(BtCursor *pCur);
+void sqlite3BtreeIncrblobCursorOriginal(BtCursor *pCur);
+int sqlite3BtreePayloadCheckedAll(BtCursor*, u32 offset, u32 amt, void*);
+int sqlite3BtreePayloadCheckedOriginal(BtCursor*, u32 offset, u32 amt, void*);
+
+int saveAllCursorsOriginal(BtShared *pBt, Pgno iRoot, BtCursor *pExcept);
+void invalidateIncrblobCursorsOriginal(Btree *pBtree, Pgno pgnoRoot, i64 iRow, int isClearTable);
 
 #endif /* SQLITE_ROWLOCK_H */
 #endif /* SQLITE_OMIT_ROWLOCK */

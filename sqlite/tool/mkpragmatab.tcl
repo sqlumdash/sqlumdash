@@ -41,11 +41,6 @@ set pragma_def {
   ARG:  SQLITE_NullCallback
   IF:   !defined(SQLITE_OMIT_FLAG_PRAGMAS)
 
-  NAME: legacy_file_format
-  TYPE: FLAG
-  ARG:  SQLITE_LegacyFileFmt
-  IF:   !defined(SQLITE_OMIT_FLAG_PRAGMAS)
-
   NAME: fullfsync
   TYPE: FLAG
   ARG:  SQLITE_FullFSync
@@ -131,6 +126,11 @@ set pragma_def {
   NAME: recursive_triggers
   TYPE: FLAG
   ARG:  SQLITE_RecTriggers
+  IF:   !defined(SQLITE_OMIT_FLAG_PRAGMAS)
+
+  NAME: trusted_schema
+  TYPE: FLAG
+  ARG:  SQLITE_TrustedSchema
   IF:   !defined(SQLITE_OMIT_FLAG_PRAGMAS)
 
   NAME: foreign_keys
@@ -262,21 +262,21 @@ set pragma_def {
 
   NAME: function_list
   FLAG: Result0
-  COLS: name builtin
+  COLS: name builtin type enc narg flags
   IF:   !defined(SQLITE_OMIT_SCHEMA_PRAGMAS)
-  IF:   defined(SQLITE_INTROSPECTION_PRAGMAS)
+  IF:   !defined(SQLITE_OMIT_INTROSPECTION_PRAGMAS)
 
   NAME: module_list
   FLAG: Result0
   COLS: name
   IF:   !defined(SQLITE_OMIT_SCHEMA_PRAGMAS)
   IF:   !defined(SQLITE_OMIT_VIRTUALTABLE)
-  IF:   defined(SQLITE_INTROSPECTION_PRAGMAS)
+  IF:   !defined(SQLITE_OMIT_INTROSPECTION_PRAGMAS)
 
   NAME: pragma_list
   FLAG: Result0
   COLS: name
-  IF:   defined(SQLITE_INTROSPECTION_PRAGMAS)
+  IF:   !defined(SQLITE_OMIT_INTROSPECTION_PRAGMAS)
 
   NAME: collation_list
   FLAG: Result0
@@ -289,7 +289,7 @@ set pragma_def {
   IF:   !defined(SQLITE_OMIT_FOREIGN_KEY)
 
   NAME: foreign_key_check
-  FLAG: NeedSchema Result0
+  FLAG: NeedSchema Result0 Result1 SchemaOpt
   COLS: table rowid parent fkid
   IF:   !defined(SQLITE_OMIT_FOREIGN_KEY) && !defined(SQLITE_OMIT_TRIGGER)
 
@@ -301,6 +301,7 @@ set pragma_def {
 
   NAME: case_sensitive_like
   FLAG: NoColumns
+  IF:   !defined(SQLITE_OMIT_CASE_SENSITIVE_LIKE_PRAGMA)
 
   NAME: integrity_check
   FLAG: NeedSchema Result0 Result1
@@ -369,43 +370,19 @@ set pragma_def {
   COLS: database status
   IF:   defined(SQLITE_DEBUG) || defined(SQLITE_TEST)
 
-  NAME: key
-  TYPE: KEY
-  ARG:  0
-  IF:   defined(SQLITE_HAS_CODEC)
-
-  NAME: rekey
-  TYPE: KEY
-  ARG:  1
-  IF:   defined(SQLITE_HAS_CODEC)
-
-  NAME: hexkey
-  TYPE: HEXKEY
-  ARG:  2
-  IF:   defined(SQLITE_HAS_CODEC)
-
-  NAME: hexrekey
-  TYPE: HEXKEY
-  ARG:  3
-  IF:   defined(SQLITE_HAS_CODEC)
-
-  NAME: textkey
-  TYPE: KEY
-  ARG:  4
-  IF:   defined(SQLITE_HAS_CODEC)
-
-  NAME: textrekey
-  TYPE: KEY
-  ARG:  5
-  IF:   defined(SQLITE_HAS_CODEC)
-
   NAME: activate_extensions
-  IF:   defined(SQLITE_HAS_CODEC) || defined(SQLITE_ENABLE_CEROD)
+  IF:   defined(SQLITE_ENABLE_CEROD)
 
   NAME: soft_heap_limit
   FLAG: Result0
 
+  NAME: hard_heap_limit
+  FLAG: Result0
+
   NAME: threads
+  FLAG: Result0
+
+  NAME: analysis_limit
   FLAG: Result0
 
   NAME: optimize
@@ -492,7 +469,7 @@ record_one
 set allnames [lsort [array names allbyname]]
 
 # Generate #defines for all pragma type names.  Group the pragmas that are
-# omit in default builds (defined(SQLITE_DEBUG) and defined(SQLITE_HAS_CODEC))
+# omit in default builds (ex: defined(SQLITE_DEBUG))
 # at the end.
 #
 puts $fd "\n/* The various pragma types */"

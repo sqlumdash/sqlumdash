@@ -10,6 +10,7 @@
 #ifndef SQLITE_OMIT_ROWLOCK
 #include "sqliteInt.h"
 #include "btreeInt.h"
+#include "rowlock.h"
 #include "rowlock_ipc.h"
 #include "rowlock_ipc_table.h"
 #include "rowlock_os.h"
@@ -64,11 +65,13 @@ u8 tableClassIsValid(void *pElem){
   return pElement->iTable!=0;
 }
 
+/* Table lock Element is identify by [iTable, Owner(pBtree), ProcessID]*/
 u8 tableClassElemIsTarget(void *pElem1, void *pElem2){
   TableElement *pElement1 = (TableElement*)pElem1;
   TableElement *pElement2 = (TableElement*)pElem2;
   return pElement1->iTable==pElement2->iTable && 
-         (!pElement1->owner || !pElement2->owner || pElement1->owner==pElement2->owner);
+         (!pElement1->owner || !pElement2->owner || pElement1->owner==pElement2->owner) &&
+         (pElement1->pid==PID_CLEANER || pElement2->pid==PID_CLEANER || pElement1->pid==pElement2->pid);
 }
 
 void *tableClassElemGet(void *pMap, u64 idx){
@@ -141,7 +144,7 @@ void tableClassPrintData(void *pMap){
   for( idx=0; idx<xClass->xElemCount(pMap); idx++ ){
     TableElement *pElem = (TableElement*)xClass->xElemGet(pMap, idx);
     int isLocked = (xClass->xElemIsValid(pElem))? 1:0;
-    printf("[%0lld]iTable=%d, hash=%llu, owner=%p, eLock=%d\n", idx, pElem->iTable, pElem->hash, pElem->owner, pElem->eLock);
+    printf("[%0lld]iTable=%d, hash=%llu, owner=%llu, eLock=%u\n", idx, pElem->iTable, pElem->hash, pElem->owner, pElem->eLock);
     if( (idx+1)%10==0 ) printf("\n");
   }
   printf("\n");
@@ -190,7 +193,7 @@ int sqlite3rowlockIpcLockTable(IpcHandle *pHandle, int iTable, u8 eLock, int mod
   int found = 0;
 
   assert( iTable!=0 );
-  assert( eLock!=EXCLSV_LOCK || iTable!=MASTER_ROOT );
+  assert( eLock!=EXCLSV_LOCK || iTable!=SCHEMA_ROOT );
 
   rowlockOsMutexEnter(IpcTableLockMutex());
 
@@ -211,7 +214,7 @@ int sqlite3rowlockIpcLockTable(IpcHandle *pHandle, int iTable, u8 eLock, int mod
         found = 1;
       }else{
         /* Other user has a table lock. */
-        if( iTable==MASTER_ROOT ){
+        if( iTable==SCHEMA_ROOT ){
           /* Cannot get a write lock if someone has a lock of sqlite_master. */
           if( pElem->eLock==WRITE_LOCK || (pElem->eLock==READ_LOCK && eLock==WRITE_LOCK) ){
             rc = SQLITE_LOCKED;
@@ -339,6 +342,7 @@ static void sqlite3rowlockIpcUnlockTableCore(IpcHandle *pHandle, int iTable, int
   /* Search a deleting target. */
   tablelockTarget.iTable = iTable;
   tablelockTarget.owner = pHandle->owner;
+  tablelockTarget.pid = pid;
   rc = rowlockIpcSearch(pMap, IPC_CLASS_TABLE, &tablelockTarget, hash, &idxDel);
   if( rc!=SQLITE_LOCKED ) goto unlock_table;
 
@@ -400,8 +404,8 @@ static void sqlite3rowlockIpcUnlockTablesProcCore(IpcHandle *pHandle, PID pid, i
   assert( pid!=0 || !pHandle );
   assert( pHandle || name );
   if( !pHandle ){
-    int rc = sqlite3rowlockIpcInit(&ipcHandle, ROWLOCK_DEFAULT_MMAP_ROW_SIZE, ROWLOCK_DEFAULT_MMAP_TABLE_SIZE, NULL, name);
-    assert (rc==SQLITE_OK );
+    int rc = sqlite3rowlockIpcInit(&ipcHandle, sqlite3GlobalConfig.szMmapRowLock, sqlite3GlobalConfig.szMmapTableLock, NULL, name);
+    if( rc ) return;
     pHandle = &ipcHandle;
   }
 
@@ -409,6 +413,8 @@ static void sqlite3rowlockIpcUnlockTablesProcCore(IpcHandle *pHandle, PID pid, i
   pMeta = (TableMetaData*)pHandle->pTableLock;
 
   rowlockOsMutexEnter(IpcTableLockMutex());
+
+  if( !pMap ) goto unlock_tables_proc_end;
 
   pElement = TableLockPointer(pHandle);
   nElem = xClass->xElemCount(pMap);
@@ -563,8 +569,8 @@ void sqlite3rowlockIpcCachedRowidReset(IpcHandle *pHandle, const char *name){
 
   assert( pHandle || name );
   if( !pHandle ){
-    int rc = sqlite3rowlockIpcInit(&ipcHandle, ROWLOCK_DEFAULT_MMAP_ROW_SIZE, ROWLOCK_DEFAULT_MMAP_TABLE_SIZE, NULL, name);
-    assert (rc==SQLITE_OK );
+    int rc = sqlite3rowlockIpcInit(&ipcHandle, sqlite3GlobalConfig.szMmapRowLock, sqlite3GlobalConfig.szMmapTableLock, NULL, name);
+    if( rc ) return;
     pHandle = &ipcHandle;
   }
 
@@ -607,6 +613,21 @@ cached_rowid_reset:
   if( ipcHandle.pTableLock ){
     sqlite3rowlockIpcFinish(pHandle);
   }
+}
+
+/*
+** Check if any table lock is existed
+** Return SQLITE_OK if no one have a table lock.
+** Return SQLITE_LOCKED if someone have a table lock.
+*/
+int sqlite3rowlockIpcCheckTableLockExisted(IpcHandle *pHandle){
+  TableMetaData *pMeta = (TableMetaData*)pHandle->pTableLock;
+  int rc = SQLITE_OK;
+
+  rowlockOsMutexEnter(IpcTableLockMutex());
+  if( pMeta->nLock ) rc = SQLITE_LOCKED;
+  rowlockOsMutexLeave(IpcTableLockMutex());
+  return rc;
 }
 
 #endif /* SQLITE_OMIT_ROWLOCK */

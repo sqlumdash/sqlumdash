@@ -61,8 +61,6 @@ u64 rowlockIpcCalcHash(u64 nBucket, unsigned char *buf, u32 len);
 int rowlockIpcSearch(void *pMap, u8 iClass, void *pTarget, u64 hash, u64 *pIdx);
 void rowlockIpcDelete(void *pMap, u8 iClass, u64 idxStart, u64 idxDel, u64 idxEnd);
 
-int rowlockStrCat(char *dest, size_t size, const char *src1, const char *src2);
-
 int sqlite3rowlockIpcInit(IpcHandle *pHandle, u64 nByteRow, u64 nByteTable, const void *owner, const char *name);
 void sqlite3rowlockIpcFinish(IpcHandle *pHandle);
 int sqlite3rowlockIpcLockRecord(IpcHandle *pHandle, int iTable, i64 rowid);
@@ -79,6 +77,7 @@ void sqlite3rowlockIpcUnlockRecordAll(const char *name);
 int sqlite3rowlockIpcLockTable(IpcHandle *pHandle, int iTable, u8 eLock, int mode, u8 *prevLock);
 void sqlite3rowlockIpcUnlockTablesStmtProc(IpcHandle *pHandle, const char *name);
 u8 sqlite3rowlockIpcLockTableQuery(IpcHandle *pHandle, int iTable);
+int sqlite3rowlockIpcCheckTableLockExisted(IpcHandle *pHandle);
 void sqlite3rowlockIpcUnlockTable(IpcHandle *pHandle, int iTable);
 void sqlite3rowlockIpcUnlockTablesProc(IpcHandle *pHandle, const char *name);
 void sqlite3rowlockIpcUnlockTablesAll(const char *name);

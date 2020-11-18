@@ -1100,4 +1100,105 @@ do_execsql_test select1-17.3 {
          UNION ALL SELECT * FROM t2 WHERE y=3 ORDER BY y,z LIMIT 4);
 } {1 2 3}
 
+# 2019-07-24 Ticket https://sqlite.org/src/tktview/c52b09c7f38903b1311
+#
+do_execsql_test select1-18.1 {
+  DROP TABLE IF EXISTS t1;
+  DROP TABLE IF EXISTS t2;
+  CREATE TABLE t1(c);
+  CREATE TABLE t2(x PRIMARY KEY, y);
+  INSERT INTO t1(c) VALUES(123);
+  INSERT INTO t2(x) VALUES(123);
+  SELECT x FROM t2, t1 WHERE x BETWEEN c AND null OR x AND
+  x IN ((SELECT x FROM (SELECT x FROM t2, t1 
+  WHERE x BETWEEN (SELECT x FROM (SELECT x COLLATE rtrim 
+  FROM t2, t1 WHERE x BETWEEN c AND null
+  OR x AND x IN (c)), t1 WHERE x BETWEEN c AND null
+  OR x AND x IN (c)) AND null
+  OR NOT EXISTS(SELECT -4.81 FROM t1, t2 WHERE x BETWEEN c AND null
+  OR x AND x IN ((SELECT x FROM (SELECT x FROM t2, t1
+  WHERE x BETWEEN (SELECT x FROM (SELECT x BETWEEN c AND null
+  OR x AND x IN (c)), t1 WHERE x BETWEEN c AND null
+  OR x AND x IN (c)) AND null
+  OR x AND x IN (c)), t1 WHERE x BETWEEN c AND null
+  OR x AND x IN (c)))) AND x IN (c)
+  ), t1 WHERE x BETWEEN c AND null
+  OR x AND x IN (c)));
+} {}
+do_execsql_test select1-18.2 {
+  DROP TABLE IF EXISTS t1;
+  DROP TABLE IF EXISTS t2;
+  CREATE TABLE t1(c);
+  CREATE TABLE t2(x PRIMARY KEY, y);
+  INSERT INTO t1(c) VALUES(123);
+  INSERT INTO t2(x) VALUES(123);
+  SELECT x FROM t2, t1 WHERE x BETWEEN c AND (c+1) OR x AND
+  x IN ((SELECT x FROM (SELECT x FROM t2, t1 
+  WHERE x BETWEEN (SELECT x FROM (SELECT x COLLATE rtrim 
+  FROM t2, t1 WHERE x BETWEEN c AND (c+1)
+  OR x AND x IN (c)), t1 WHERE x BETWEEN c AND (c+1)
+  OR x AND x IN (c)) AND (c+1)
+  OR NOT EXISTS(SELECT -4.81 FROM t1, t2 WHERE x BETWEEN c AND (c+1)
+  OR x AND x IN ((SELECT x FROM (SELECT x FROM t2, t1
+  WHERE x BETWEEN (SELECT x FROM (SELECT x BETWEEN c AND (c+1)
+  OR x AND x IN (c)), t1 WHERE x BETWEEN c AND (c+1)
+  OR x AND x IN (c)) AND (c+1)
+  OR x AND x IN (c)), t1 WHERE x BETWEEN c AND (c+1)
+  OR x AND x IN (c)))) AND x IN (c)
+  ), t1 WHERE x BETWEEN c AND (c+1)
+  OR x AND x IN (c)));
+} {123}
+do_execsql_test select1-18.3 {
+  SELECT 1 FROM t1 WHERE (
+    SELECT 2 FROM t2 WHERE (
+      SELECT 3 FROM (
+        SELECT x FROM t2 WHERE x=c OR x=(SELECT x FROM (VALUES(0)))
+      ) WHERE x>c OR x=c
+    )
+  );
+} {1}
+do_execsql_test select1-18.4 {
+  SELECT 1 FROM t1, t2 WHERE (
+    SELECT 3 FROM (
+      SELECT x FROM t2 WHERE x=c OR x=(SELECT x FROM (VALUES(0)))
+    ) WHERE x>c OR x=c
+  );
+} {1}
+
+# 2019-12-17 gramfuzz find
+#
+do_execsql_test select-19.10 {
+  DROP TABLE IF EXISTS t1;
+  CREATE TABLE t1(x);
+} {}
+do_catchsql_test select-19.20 {
+  INSERT INTO t1
+    SELECT 1,2,3,4,5,6,7
+    UNION ALL SELECT 1,2,3,4,5,6,7
+    ORDER BY 1;
+} {1 {table t1 has 1 columns but 7 values were supplied}}
+do_catchsql_test select-19.21 {
+  INSERT INTO t1
+    SELECT 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+    UNION ALL SELECT 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+    ORDER BY 1;
+} {1 {table t1 has 1 columns but 15 values were supplied}}
+
+# 2020-01-01 Found by Yongheng's fuzzer
+#
+reset_db
+do_execsql_test select-20.10 {
+  CREATE TABLE t1 (
+    a INTEGER PRIMARY KEY,
+    b AS('Y') UNIQUE
+  );
+  INSERT INTO t1(a) VALUES (10);
+  SELECT * FROM t1 JOIN t1 USING(a,b)
+   WHERE ((SELECT t1.a FROM t1 AS x GROUP BY b) AND b=0)
+      OR a = 10;
+} {10 Y}
+do_execsql_test select-20.20 {
+  SELECT ifnull(a, max((SELECT 123))), count(a) FROM t1 ;
+} {10 1}
+
 finish_test

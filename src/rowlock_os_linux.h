@@ -26,11 +26,13 @@ typedef pid_t TID;  /* Data type of thread ID */
 typedef struct MUTEX_HANDLE {
   pthread_mutex_t handle;
   int held; /* True if I have the mutex. */
+  int init; /* 1 if mutex is initialized. */
 } MUTEX_HANDLE;
 typedef struct MMAP_HANDLE {
   int fdMmap; /* File descriptor of MMAP */
   int fdMng;  /* File descriptor of management file */
   char name[MAX_PATH_LEN]; /* MMAP name */
+  size_t size; /* MMAP size. */
 } MMAP_HANDLE;
 
 /* The suffix of MMAP management file. */

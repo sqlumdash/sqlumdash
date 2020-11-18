@@ -48,7 +48,7 @@ static int SQLITE_TCLAPI test_sqlite3_config_mmap(
     { "CONFIG_TABLELOCK_MMAP_SIZE",         SQLITE_CONFIG_MMAP_TABLE_SIZE },
   };
   int i;
-  int v;
+  Tcl_WideInt  v;
   int rc = 0;
   const char *zSetting;
 
@@ -66,7 +66,7 @@ static int SQLITE_TCLAPI test_sqlite3_config_mmap(
       Tcl_NewStringObj("unknown sqlite3_config setting", -1));
     return TCL_ERROR;
   }
-  if( Tcl_GetIntFromObj(interp, objv[2], &v) ) return TCL_ERROR;
+  if( Tcl_GetWideIntFromObj(interp, objv[2], &v) ) return TCL_ERROR;
   rc = sqlite3_config(aSetting[i].eVal, v, &v);
   if (rc != SQLITE_OK) {
     return TCL_ERROR;

@@ -95,7 +95,9 @@ int rowlockOsMmapOpen(u64 allocSize, const char *name, MMAP_HANDLE *phMap, void 
 
   hMap.hdlFile = CreateFile(name, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, 
                      NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_RANDOM_ACCESS, NULL);
-  if( !hMap.hdlFile ) return SQLITE_CANTOPEN_BKPT;
+  /* CreateFile return INVALID_HANDLE_VALUE when fail to create file */
+
+  if( hMap.hdlFile==INVALID_HANDLE_VALUE ) return SQLITE_CANTOPEN_BKPT;
 
   created = (GetLastError() != ERROR_ALREADY_EXISTS);
 

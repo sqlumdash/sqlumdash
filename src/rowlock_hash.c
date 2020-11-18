@@ -11,6 +11,8 @@
 #include "sqliteInt.h"
 #include <assert.h>
 
+void *rowlockDefaultMalloc(void *allocator, sqlite3_int64 n);
+
 /* Turn bulk memory into a hash table object by initializing the
 ** fields of the Hash structure.
 **
@@ -28,18 +30,19 @@ void sqlite3HashI64Init(HashI64 *pNew){
 ** Call this routine to delete a hash table or to reset a hash table
 ** to the empty state.
 */
-void sqlite3HashI64Clear(HashI64 *pH){
+void sqlite3HashI64Clear(HashI64 *pH, void *allocator,
+                         void (*xFree)(void*, void*)){
   HashElemI64 *elem;         /* For looping over all elements of the table */
 
   assert( pH!=0 );
   elem = pH->first;
   pH->first = 0;
-  sqlite3_free(pH->ht);
+  xFree(allocator, pH->ht);
   pH->ht = 0;
   pH->htsize = 0;
   while( elem ){
     HashElemI64 *next_elem = elem->next;
-    sqlite3_free(elem);
+    xFree(allocator, elem);
     elem = next_elem;
   }
   pH->count = 0;
@@ -82,7 +85,9 @@ static void insertElementI64(
 ** if the new size is the same as the prior size.
 ** Return TRUE if the resize occurs and false if not.
 */
-static int rehashI64(HashI64 *pH, unsigned int new_size){
+static int rehashI64(HashI64 *pH, unsigned int new_size, void *allocator,
+                     void *(*xMalloc)(void*, sqlite3_int64),
+                     void (*xFree)(void*, void*)){
   struct _htI64 *new_ht;            /* The new hash table */
   HashElemI64 *elem, *next_elem;    /* For looping over existing elements */
 
@@ -101,14 +106,18 @@ static int rehashI64(HashI64 *pH, unsigned int new_size){
   ** use the actual amount of space allocated for the hash table (which
   ** may be larger than the requested amount).
   */
-  sqlite3BeginBenignMalloc();
-  new_ht = (struct _htI64 *)sqlite3Malloc( new_size*sizeof(struct _htI64) );
-  sqlite3EndBenignMalloc();
+  if( xMalloc==rowlockDefaultMalloc ){
+    sqlite3BeginBenignMalloc();
+    new_ht = (struct _htI64 *)sqlite3Malloc( new_size*sizeof(struct _htI64) );
+    sqlite3EndBenignMalloc();
+  }else{
+    new_ht = (struct _htI64 *)xMalloc( allocator, new_size*sizeof(struct _htI64) );
+  }
 
   if( new_ht==0 ) return 0;
-  sqlite3_free(pH->ht);
+  xFree(allocator, pH->ht);
   pH->ht = new_ht;
-  pH->htsize = new_size = sqlite3MallocSize(new_ht)/sizeof(struct _htI64);
+  pH->htsize = new_size;
   memset(new_ht, 0, new_size*sizeof(struct _htI64));
   for(elem=pH->first, pH->first=0; elem; elem = next_elem){
     unsigned int h = elem->iKey % new_size;
@@ -161,7 +170,9 @@ static HashElemI64 *findElementWithHashI64(
 static void removeElementGivenHashI64(
   HashI64 *pH,         /* The pH containing "elem" */
   HashElemI64 *elem,   /* The element to be removed from the pH */
-  unsigned int h    /* Hash value for the element */
+  unsigned int h,      /* Hash value for the element */
+  void *allocator,     /* 1st argument for xFree */
+  void (*xFree)(void*, void*)
 ){
   struct _htI64 *pEntry;
   if( elem->prev ){
@@ -180,12 +191,12 @@ static void removeElementGivenHashI64(
     pEntry->count--;
     assert( pEntry->count>=0 );
   }
-  sqlite3_free( elem );
+  xFree( allocator, elem );
   pH->count--;
   if( pH->count==0 ){
     assert( pH->first==0 );
     assert( pH->count==0 );
-    sqlite3HashI64Clear(pH);
+    sqlite3HashI64Clear(pH, allocator, xFree);
   }
 }
 
@@ -212,7 +223,10 @@ void *sqlite3HashI64Find(const HashI64 *pH, sqlite_int64 iKey){
 ** If the "data" parameter to this function is NULL, then the
 ** element corresponding to "key" is removed from the hash table.
 */
-void *sqlite3HashI64Insert(HashI64 *pH, sqlite_int64 iKey, void *data){
+void *sqlite3HashI64Insert(HashI64 *pH, sqlite_int64 iKey, void *data,
+                          void *allocator,
+                          void *(*xMalloc)(void*, sqlite3_int64),
+                          void (*xFree)(void*, void*)){
   unsigned int h;       /* the hash of the key modulo hash table size */
   HashElemI64 *elem;       /* Used to loop thru the element list */
   HashElemI64 *new_elem;   /* New element added to the pH */
@@ -222,7 +236,7 @@ void *sqlite3HashI64Insert(HashI64 *pH, sqlite_int64 iKey, void *data){
   if( elem->data ){
     void *old_data = elem->data;
     if( data==0 ){
-      removeElementGivenHashI64(pH,elem,h);
+      removeElementGivenHashI64(pH,elem,h,allocator,xFree);
     }else{
       elem->data = data;
       elem->iKey = iKey;
@@ -230,13 +244,13 @@ void *sqlite3HashI64Insert(HashI64 *pH, sqlite_int64 iKey, void *data){
     return old_data;
   }
   if( data==0 ) return 0;
-  new_elem = (HashElemI64*)sqlite3Malloc( sizeof(HashElemI64) );
+  new_elem = (HashElemI64*)xMalloc(allocator, sizeof(HashElemI64) );
   if( new_elem==0 ) return data;
   new_elem->iKey = iKey;
   new_elem->data = data;
   pH->count++;
   if( pH->count>=10 && pH->count > 2*pH->htsize ){
-    if( rehashI64(pH, pH->count*2) ){
+    if( rehashI64(pH, pH->count*2, allocator, xMalloc, xFree) ){
       assert( pH->htsize>0 );
       h = iKey % pH->htsize;
     }
