@@ -17,6 +17,7 @@ static int readDbPage(PgHdr *pPg);
 static int pagerBeginReadTransaction(Pager *pPager);
 static int pagerPagecount(Pager *pPager, Pgno *pnPage);
 static int pagerLockDb(Pager *pPager, int eLock);
+static int pagerUnlockDb(Pager *pPager, int eLock);
 
 #ifndef NDEBUG 
 static int assert_pager_state(Pager *p){
@@ -47,7 +48,6 @@ static int pager_write_pagelist(Pager *pPager, PgHdr *pList){
   u8 eLockOrig = pPager->eLock;
   pPager->eLock = EXCLUSIVE_LOCK;
   rc = pager_write_pagelist_original(pPager, pList);
-  pPager->eLock = eLockOrig;
   return rc;
 }
 
@@ -74,7 +74,7 @@ int rowlockPagerCheckSchemaVers(Pager *pPager, int version, u8 *needReset){
     schemaVersion = 0;
   }
 
-  if( schemaVersion!=version && schemaVersion!=0 && version!=0 ){
+  if( schemaVersion > version && schemaVersion!=0 && version!=0 ){
     *needReset = 1;
   }else{
     *needReset = 0;
@@ -103,7 +103,7 @@ int rowlockPagerCheckDbFileVers(Pager *pPager, u8 *needReset){
     memset(dbFileVers, 0, sizeof(dbFileVers));
   }
   
-  if( memcmp(pPager->dbFileVers, dbFileVers, sizeof(dbFileVers))!=0 ){
+  if( memcmp(pPager->dbFileVers, dbFileVers, sizeof(dbFileVers)) < 0 ){
     *needReset = 1;
   }else{
     *needReset = 0;
@@ -157,5 +157,22 @@ int rowlockPagerExclusiveLock(Pager *pPager){
   }while( rc==SQLITE_BUSY && pPager->xBusyHandler(pPager->pBusyHandlerArg) );
   return rc;
 }
+
+/*
+** Check the pager can be obtained with lockType or not
+** After lock with the locktype successfully, release the lock
+** back to the original state immediately.
+*/
+int rowlockPagerCheckLockAvailable(Pager *pPager, u8 lockType){
+  int rc = SQLITE_OK;
+
+  u8 originalLock = pPager->eLock;
+  rc = pagerLockDb(pPager, lockType);
+  if( rc == SQLITE_OK )
+    rc = pagerUnlockDb(pPager, originalLock);
+  assert( rc == SQLITE_OK );
+  return rc;
+}
+
 #endif /* SQLUMDASH_INCLUDED_FROM_PAGER_C || SQLITE_AMALGAMATION */
 #endif /* SQLITE_OMIT_ROWLOCK */

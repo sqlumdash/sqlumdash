@@ -61,6 +61,11 @@ typedef sqlite3_uint64 u64;
 */
 #define FTS5_MAX_PREFIX_INDEXES 31
 
+/*
+** Maximum segments permitted in a single index 
+*/
+#define FTS5_MAX_SEGMENT 2000
+
 #define FTS5_DEFAULT_NEARDIST 10
 #define FTS5_DEFAULT_RANK     "bm25"
 
@@ -178,6 +183,7 @@ struct Fts5Config {
   char *zContentExprlist;
   Fts5Tokenizer *pTok;
   fts5_tokenizer *pTokApi;
+  int bLock;                      /* True when table is preparing statement */
 
   /* Values loaded from the %_config table */
   int iCookie;                    /* Incremented when %_config is modified */
@@ -415,6 +421,11 @@ int sqlite3Fts5IterNextFrom(Fts5IndexIter*, i64 iMatch);
 ** Close an iterator opened by sqlite3Fts5IndexQuery().
 */
 void sqlite3Fts5IterClose(Fts5IndexIter*);
+
+/*
+** Close the reader blob handle, if it is open.
+*/
+void sqlite3Fts5IndexCloseReader(Fts5Index*);
 
 /*
 ** This interface is used by the fts5vocab module.
@@ -694,6 +705,7 @@ int sqlite3Fts5ExprEof(Fts5Expr*);
 i64 sqlite3Fts5ExprRowid(Fts5Expr*);
 
 void sqlite3Fts5ExprFree(Fts5Expr*);
+int sqlite3Fts5ExprAnd(Fts5Expr **pp1, Fts5Expr *p2);
 
 /* Called during startup to register a UDF with SQLite */
 int sqlite3Fts5ExprInit(Fts5Global*, sqlite3*);

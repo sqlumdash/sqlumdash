@@ -31,7 +31,8 @@
 ** "explain" P4 display logic is enabled.
 */
 #if !defined(SQLITE_OMIT_EXPLAIN) || !defined(NDEBUG) \
-     || defined(VDBE_PROFILE) || defined(SQLITE_DEBUG)
+     || defined(VDBE_PROFILE) || defined(SQLITE_DEBUG) \
+     || defined(SQLITE_ENABLE_BYTECODE_VTAB)
 # define VDBE_DISPLAY_P4 1
 #else
 # define VDBE_DISPLAY_P4 0
@@ -88,7 +89,7 @@ struct VdbeCursor {
   Bool seekHit:1;         /* See the OP_SeekHit and OP_IfNoHope opcodes */
   Btree *pBtx;            /* Separate file holding temporary table */
   i64 seqCount;           /* Sequence counter */
-  int *aAltMap;           /* Mapping from table to index column numbers */
+  u32 *aAltMap;           /* Mapping from table to index column numbers */
 
   /* Cached OP_Column parse information is only valid if cacheStatus matches
   ** Vdbe.cacheCtr.  Vdbe.cacheCtr will never take on the value of
@@ -245,12 +246,12 @@ struct sqlite3_value {
 #define MEM_Int       0x0004   /* Value is an integer */
 #define MEM_Real      0x0008   /* Value is a real number */
 #define MEM_Blob      0x0010   /* Value is a BLOB */
-#define MEM_AffMask   0x001f   /* Mask of affinity bits */
-#define MEM_FromBind  0x0020   /* Value originates from sqlite3_bind() */
-/* Available          0x0040   */
+#define MEM_IntReal   0x0020   /* MEM_Int that stringifies like MEM_Real */
+#define MEM_AffMask   0x003f   /* Mask of affinity bits */
+#define MEM_FromBind  0x0040   /* Value originates from sqlite3_bind() */
 #define MEM_Undefined 0x0080   /* Value is undefined */
 #define MEM_Cleared   0x0100   /* NULL set by OP_Null, not from data */
-#define MEM_TypeMask  0xc1df   /* Mask of type bits */
+#define MEM_TypeMask  0xc1bf   /* Mask of type bits */
 
 
 /* Whenever Mem contains a valid string or blob representation, one of
@@ -286,7 +287,8 @@ struct sqlite3_value {
 ** True if Mem X is a NULL-nochng type.
 */
 #define MemNullNochng(X) \
-  ((X)->flags==(MEM_Null|MEM_Zero) && (X)->n==0 && (X)->u.nZero==0)
+  (((X)->flags&MEM_TypeMask)==(MEM_Null|MEM_Zero) \
+    && (X)->n==0 && (X)->u.nZero==0)
 
 /*
 ** Return true if a memory cell is not marked as invalid.  This macro
@@ -417,9 +419,9 @@ struct Vdbe {
   u8 errorAction;         /* Recovery action to do in case of an error */
   u8 minWriteFileFormat;  /* Minimum file format for writable database files */
   u8 prepFlags;           /* SQLITE_PREPARE_* flags */
+  u8 doingRerun;          /* True if rerunning after an auto-reprepare */
   bft expired:2;          /* 1: recompile VM immediately  2: when convenient */
   bft explain:2;          /* True if EXPLAIN present on SQL command */
-  bft doingRerun:1;       /* True if rerunning after an auto-reprepare */
   bft changeCntOn:1;      /* True to update the change-counter */
   bft runOnlyOnce:1;      /* Automatically expire on reset */
   bft usesStmtJournal:1;  /* True if uses a statement journal */
@@ -482,11 +484,11 @@ struct PreUpdate {
 void sqlite3VdbeError(Vdbe*, const char *, ...);
 void sqlite3VdbeFreeCursor(Vdbe *, VdbeCursor*);
 void sqliteVdbePopStack(Vdbe*,int);
-int sqlite3VdbeCursorMoveto(VdbeCursor**, int*);
+int SQLITE_NOINLINE sqlite3VdbeFinishMoveto(VdbeCursor*);
+int sqlite3VdbeCursorMoveto(VdbeCursor**, u32*);
 int sqlite3VdbeCursorRestore(VdbeCursor*);
 u32 sqlite3VdbeSerialTypeLen(u32);
 u8 sqlite3VdbeOneByteSerialTypeLen(u8);
-u32 sqlite3VdbeSerialType(Mem*, int, u32*);
 u32 sqlite3VdbeSerialPut(unsigned char*, Mem*, u32);
 u32 sqlite3VdbeSerialGet(const unsigned char*, u32, Mem*);
 void sqlite3VdbeDeleteAuxData(sqlite3*, AuxData**, int, int);
@@ -495,7 +497,14 @@ int sqlite2BtreeKeyCompare(BtCursor *, const void *, int, int, int *);
 int sqlite3VdbeIdxKeyCompare(sqlite3*,VdbeCursor*,UnpackedRecord*,int*);
 int sqlite3VdbeIdxRowid(sqlite3*, BtCursor*, i64*);
 int sqlite3VdbeExec(Vdbe*);
-#ifndef SQLITE_OMIT_EXPLAIN
+#if !defined(SQLITE_OMIT_EXPLAIN) || defined(SQLITE_ENABLE_BYTECODE_VTAB)
+int sqlite3VdbeNextOpcode(Vdbe*,Mem*,int,int*,int*,Op**);
+char *sqlite3VdbeDisplayP4(sqlite3*,Op*);
+#endif
+#if defined(SQLITE_ENABLE_EXPLAIN_COMMENTS)
+char *sqlite3VdbeDisplayComment(sqlite3*,const Op*,const char*);
+#endif
+#if !defined(SQLITE_OMIT_EXPLAIN)
 int sqlite3VdbeList(Vdbe*);
 #endif
 int sqlite3VdbeHalt(Vdbe*);
@@ -529,14 +538,15 @@ int sqlite3VdbeBooleanValue(Mem*, int ifNull);
 void sqlite3VdbeIntegerAffinity(Mem*);
 int sqlite3VdbeMemRealify(Mem*);
 int sqlite3VdbeMemNumerify(Mem*);
-void sqlite3VdbeMemCast(Mem*,u8,u8);
+int sqlite3VdbeMemCast(Mem*,u8,u8);
 int sqlite3VdbeMemFromBtree(BtCursor*,u32,u32,Mem*);
+int sqlite3VdbeMemFromBtreeZeroOffset(BtCursor*,u32,Mem*);
 void sqlite3VdbeMemRelease(Mem *p);
 int sqlite3VdbeMemFinalize(Mem*, FuncDef*);
 #ifndef SQLITE_OMIT_WINDOWFUNC
 int sqlite3VdbeMemAggValue(Mem*, Mem*, FuncDef*);
 #endif
-#ifndef SQLITE_OMIT_EXPLAIN
+#if !defined(SQLITE_OMIT_EXPLAIN) || defined(SQLITE_ENABLE_BYTECODE_VTAB)
 const char *sqlite3OpcodeName(int);
 #endif
 int sqlite3VdbeMemGrow(Mem *pMem, int n, int preserve);
@@ -595,7 +605,7 @@ int sqlite3VdbeCheckFk(Vdbe *, int);
 
 #ifdef SQLITE_DEBUG
   void sqlite3VdbePrintSql(Vdbe*);
-  void sqlite3VdbeMemPrettyPrint(Mem *pMem, char *zBuf);
+  void sqlite3VdbeMemPrettyPrint(Mem *pMem, StrAccum *pStr);
 #endif
 #ifndef SQLITE_OMIT_UTF16
   int sqlite3VdbeMemTranslate(Mem*, u8);

@@ -14,8 +14,8 @@
 #include "rowlock.h"
 #include <signal.h>
 
-static u8 rowlockIsIndex(Btree *p, int rootPage);
 static u8 cachedRowidFlagGet(BtCursor *pCur);
+int btreeValidTableKey(BtCursor *, i64 *, int);
 
 static void rowlockIpcCleanup(void){
   BtShared *pBt;
@@ -108,6 +108,17 @@ __attribute__((destructor)) static void destructor(){
 }
 #endif
 
+/* Concatenate two strings and store it into buffer.
+** Return 0 if successful.
+** Return 1 if buffer is too small.
+*/
+int rowlockStrCat(char *dest, size_t size, const char *src1, const char *src2){
+  size_t len = strlen(src1) + strlen(src2) + 1;
+  if( len>size ) return 1;
+  xSnprintf(dest, size, "%s%s", src1, src2);
+  return 0;
+}
+
 /* Return 1 if the btree uses a transaction btree. */
 static int transBtreeIsUsed(Btree *pBtree){
   BtreeTrans *pBtTrans = &pBtree->btTrans;
@@ -124,7 +135,17 @@ static int transBtreeCursorIsUsed(BtCursor *pCur){
 #define cursorSharedIsUsed(pCur) ((pCur->state&CURSOR_USE_SHARED)!=0)
 
 /* Return 1 if the transaction cursor is using. */
-#define cursorTransIsUsed(pCur) ((pCur->state&CURSOR_USE_TRANS)!=0)
+#define cursorTransIsUsed(pCur) \
+  (pCur!=sqlite3BtreeFakeValidCursor() && \
+   (pCur->btCurTrans.state&CURSOR_USE_TRANS)!=0)
+
+void *rowlockDefaultMalloc(void *allocator, sqlite3_int64 n){
+  return sqlite3_malloc((int)n);
+}
+
+void rowlockDefaultFree(void *allocator, void *p){
+  sqlite3_free(p);
+}
 
 /* 
 ** Initialize a root page mapping which is a map of root page 
@@ -138,19 +159,50 @@ static void transRootPagesInit(HashI64 *pTransRootPages){
 
 /* Finalize a root page mapping. */
 static void transRootPagesFinish(HashI64 *pTransRootPages){
-  HashElemI64 *elem = sqliteHashI64First(pTransRootPages);
-
+  HashElemI64 *elem;
+  
+  if( !pTransRootPages ) return;
+  
   /* Cleanup for every element in a hash. */
+  elem = sqliteHashI64First(pTransRootPages);
   while( elem ){
     i64 iKey = sqliteHashI64Key(elem);
     TransRootPage *pData = (TransRootPage*)sqliteHashI64Data(elem);
     sqlite3KeyInfoUnref(pData->pKeyInfo);
     sqlite3_free(pData);
     /* Remove the element from hash. */
-    sqlite3HashI64Insert(pTransRootPages, iKey, NULL);
+    sqlite3HashI64Insert(pTransRootPages, iKey, NULL, NULL,
+                         rowlockDefaultMalloc,
+                         rowlockDefaultFree);
     elem = sqliteHashI64First(pTransRootPages);
   }
-  sqlite3HashI64Clear(pTransRootPages);
+  sqlite3HashI64Clear(pTransRootPages, NULL, rowlockDefaultFree);
+}
+
+/*
+** Generate a file path for shared memory db.
+** Shared database is named ":memory:". We cannot use the name for
+** MMAP file name such as ".\:memory:-rowlock". Therefore we generates
+** file name as "memory-<PID>.db". <PID> is process ID.
+*/
+int rowlockMemoryDbFileName(sqlite3_vfs *pVfs, char **ppzName){
+  int rc;
+  PID pid = rowlockGetPid();
+  char zFilename[21] = {0}; /* Max PID digits + "memory-.db\0" */
+  int nFullPathname = pVfs->mxPathname+1;
+  char *zFullPathname = (char*)sqlite3Malloc(nFullPathname);
+
+  if( !zFullPathname ) return SQLITE_NOMEM_BKPT;
+
+  sqlite3_snprintf(sizeof(zFilename), zFilename, "memory-%d.db", pid);
+  rc = sqlite3OsFullPathname(pVfs, zFilename,
+                             nFullPathname, zFullPathname);
+  if( rc ){
+    sqlite3_free(zFullPathname);
+    return rc;
+  }
+  *ppzName = zFullPathname;
+  return SQLITE_OK;
 }
 
 /*
@@ -159,11 +211,11 @@ static void transRootPagesFinish(HashI64 *pTransRootPages){
 static int sqlite3TransBtreeOpen(
   Btree *pBtree,        /* Pointer to Btree object created in */
   int flags,            /* Flags used to open btree */
-  int vfsFlags          /* vfsFlags used to open btree */
+  int vfsFlags,         /* vfsFlags used to open btree */
+  sqlite3_vfs *pVfs
 ){
   int rc;
   sqlite3 *db = pBtree->db;
-  Btree *pBtreeTrans = NULL;
   static const int transFlags =
     BTREE_TRANS;
   static const int transVfsFlags =
@@ -175,12 +227,13 @@ static int sqlite3TransBtreeOpen(
     SQLITE_OPEN_MEMORY;
   BtreeTrans *pBtTrans = &pBtree->btTrans;
   const char *dbFullPath;
+  char *pFree = NULL;
 
   /*
   ** Only main database should manage data in transaction btree.
-  ** Don't need to create trans Btree for Ephemeral.
+  ** Don't need to create trans Btree for Ephemeral or non-shareable.
   */
-  if( (vfsFlags & SQLITE_OPEN_MAIN_DB)==0 ){
+  if( (vfsFlags & SQLITE_OPEN_MAIN_DB)==0 || !pBtree->sharable){
     pBtTrans->pBtree = NULL;
     return SQLITE_OK;
   }
@@ -193,23 +246,40 @@ static int sqlite3TransBtreeOpen(
   dbFullPath = sqlite3PagerFilename(pBtree->pBt->pPager, 0);
   if( sqlite3_stricmp(dbFullPath, "")== 0 ) return SQLITE_OK;
 
+  if( strcmp(dbFullPath, ":memory:")==0 ){
+    rc = rowlockMemoryDbFileName(pVfs, &pFree);
+    if( rc ) return rc;
+    dbFullPath = pFree;
+  }
+
   /* Open transaction Btree for Inserted record. */
-  rc = sqlite3BtreeOpenOriginal(db->pVfs, 0, db, &pBtreeTrans,
+  rc = sqlite3BtreeOpenOriginal(db->pVfs, 0, db, &pBtTrans->pBtree,
     transFlags, transVfsFlags);
-  if( rc ) return rc;
+  if( rc ) goto trans_btree_open_failed1;
 
   /* Initialize BtreeTrans members. */
   memset(&pBtTrans->lockSavepoint, 0, sizeof(RowLockSavepoint));
   rc = sqlite3rowlockIpcInit(&pBtTrans->ipcHandle, sqlite3GlobalConfig.szMmapRowLock, sqlite3GlobalConfig.szMmapTableLock, pBtree, dbFullPath);
-  if( rc ) goto trans_btree_open_failed;
+  if( rc ) goto trans_btree_open_failed2;
 
-  pBtTrans->pBtree = pBtreeTrans;
+  rc = sqlite3rowlockPsmInit(&pBtTrans->psmHandle, ROWLOCK_DEFAULT_PSM_INDEX_SIZE, dbFullPath);
+  if( rc ) goto trans_btree_open_failed3;
+
+  sqlite3DbFree(db, pFree);
+  pFree = NULL;
+
   transRootPagesInit(&pBtTrans->rootPages);
 
   return SQLITE_OK;
 
-trans_btree_open_failed:
-  sqlite3BtreeCloseOriginal(pBtreeTrans);
+trans_btree_open_failed3:
+  sqlite3rowlockIpcFinish(&pBtTrans->ipcHandle);
+  memset(&pBtTrans->ipcHandle, 0, sizeof(IpcHandle));
+trans_btree_open_failed2:
+  sqlite3BtreeCloseOriginal(pBtTrans->pBtree);
+  pBtTrans->pBtree = NULL;
+trans_btree_open_failed1:
+  sqlite3_free(pFree);
   return rc;
 }
 
@@ -223,7 +293,7 @@ int sqlite3BtreeOpenAll(sqlite3_vfs *pVfs, const char *zFilename, sqlite3 *db, B
   rc = sqlite3BtreeOpenOriginal(pVfs, zFilename, db, &pBtree, flags, vfsFlags);
   if( rc ) return rc;
 
-  rc = sqlite3TransBtreeOpen(pBtree, flags, vfsFlags);
+  rc = sqlite3TransBtreeOpen(pBtree, flags, vfsFlags, pVfs);
   if( rc ){
     sqlite3BtreeClose(pBtree);
     return rc;
@@ -243,7 +313,8 @@ static int sqlite3TransBtreeClose(Btree *pBtree){
   if( pBtreeTrans ){
     sqlite3rowlockSavepointClose(&pBtTrans->lockSavepoint);
     sqlite3rowlockIpcFinish(&pBtTrans->ipcHandle);
-    sqlite3BtreeClose(pBtreeTrans);
+    sqlite3rowlockPsmFinish(&pBtTrans->psmHandle);
+    sqlite3BtreeCloseOriginal(pBtreeTrans);
     transRootPagesFinish(&pBtTrans->rootPages);
   }
   memset(pBtTrans, 0, sizeof(BtreeTrans));
@@ -275,7 +346,7 @@ int sqlite3TransBtreeBeginTrans(Btree *p, int wrflag){
   rc = sqlite3BtreeBeginTransOriginal(pBtreeTrans, wrflag, 0);
   if( rc ) return rc;
 
-  rc = sqlite3TransBtreeSavepointCreate(p, p->db->nSavepoint);
+  rc = sqlite3TransBtreeSavepointCreate(p, p->db->nStatement+p->db->nSavepoint);
   return rc;
 }
 
@@ -289,7 +360,6 @@ static TransRootPage *addTransRootPage(Btree *p, Pgno iTable, Pgno iInsTable,
   if( pOld ){
     /* If it already exists, it was created when delete all records. */
     pNew = pOld;
-    assert( pNew->deleteAll==1 );
     assert( pNew->iIns==0 );
     assert( pNew->iDel==0 );
     assert( !pNew->pKeyInfo );
@@ -300,7 +370,9 @@ static TransRootPage *addTransRootPage(Btree *p, Pgno iTable, Pgno iInsTable,
     /* Initialization */
     pNew->deleteAll = 0;
 
-    pOld = (TransRootPage*)sqlite3HashI64Insert(&p->btTrans.rootPages, iTable, pNew);
+    pOld = (TransRootPage*)sqlite3HashI64Insert(&p->btTrans.rootPages, iTable, pNew,
+                                                NULL, rowlockDefaultMalloc,
+                                                rowlockDefaultFree);
     if( pOld == pNew ){
       sqlite3_free(pNew);
       return NULL;
@@ -323,19 +395,86 @@ static TransRootPage *addTransRootPage(Btree *p, Pgno iTable, Pgno iInsTable,
 }
 
 /*
+** Convert a btree pointer into the iDb index that indicates
+** which database file in db->aDb[] the btree refers to.
+** Refer sqlite3SchemaToIndex() to understand the logic.
+*/
+static int rowlockBtreeToIndex(sqlite3 *db, Btree *p){
+  int i = -1000000;
+
+  assert( sqlite3_mutex_held(db->mutex) );
+  assert( p );
+  for(i=0; 1; i++){
+    assert( i<db->nDb );
+    if( db->aDb[i].pBt==p ){
+      break;
+    }
+  }
+  assert( i>=0 && i<db->nDb );
+  return i;
+}
+
+/* Judge a table type. */
+static u8 rowlockJudgeTableType(Btree *p, Pgno rootPage){
+  int iDb;
+  Schema *pSchema;
+  HashElem *i;
+  Index *pIndex = NULL;
+
+#ifdef SQLITE_TEST
+  if( p->db->nDb==0 ) return TABLE_NORMAL;
+#endif
+
+  iDb = rowlockBtreeToIndex(p->db, p);
+
+  assert( sqlite3SchemaMutexHeld(p->db, iDb, 0) );
+  pSchema = p->db->aDb[iDb].pSchema;
+
+  /* Search index. */
+  for(i=sqliteHashFirst(&pSchema->idxHash); i; i=sqliteHashNext(i)){
+    pIndex = (Index*)sqliteHashData(i);
+    if( pIndex->tnum==rootPage ) break;
+  }
+  
+  if( i ){
+    if( IsPrimaryKeyIndex(pIndex) || IsUniqueIndex(pIndex) ){
+      return INDEX_UNIQUE;
+    }else{
+      return INDEX_NORMAL;
+    }
+  }
+
+  if( pSchema->pSeqTab && pSchema->pSeqTab->tnum==rootPage ){
+    return TABLE_SEQUENCE;
+  }else{
+    return TABLE_NORMAL;
+  }
+}
+
+/* Judge if it is table or index. */
+static u8 rowlockIsIndex(Btree *p, Pgno rootPage){
+  u8 type = rowlockJudgeTableType(p, rootPage);
+  if( type==INDEX_UNIQUE || type==INDEX_NORMAL ){
+    return 1;
+  }else{
+    return 0;
+  }
+}
+
+/*
 ** TransRootPage **ppRootPage : The pointer of rootPage information in 
 ** transaction btree. This information is managed in the hash 
 ** (Btree.btTrans.rootPages). It should be freed when the hash is 
 ** cleared. 
 */
-int sqlite3TransBtreeCreateTable(Btree *p, int iTable, struct KeyInfo *pKeyInfo, 
+int sqlite3TransBtreeCreateTable(Btree *p, Pgno iTable, struct KeyInfo *pKeyInfo, 
                                  TransRootPage **ppRootPage){
   int rc = SQLITE_OK;
   int flags;
   BtreeTrans *pBtTrans = &p->btTrans;
   Btree *pBtreeTrans = pBtTrans->pBtree;
-  int iInsTable;
-  int iDelTable = 0;
+  Pgno iInsTable;
+  Pgno iDelTable = 0;
   int iMoved;
   TransRootPage *pNew = NULL;
 
@@ -357,6 +496,14 @@ int sqlite3TransBtreeCreateTable(Btree *p, int iTable, struct KeyInfo *pKeyInfo,
 
   rc = sqlite3BtreeCreateTableOriginal(pBtreeTrans, &iDelTable, flags);
   if( rc ) goto trans_btree_create_table_failed;
+
+  /* Create an index space in shared memory. */
+  if( pKeyInfo && rowlockJudgeTableType(p, iTable)==INDEX_UNIQUE ){
+    rc = sqlite3rowlockPsmCreateTable(&pBtTrans->psmHandle, iTable);
+    if( rc ) goto trans_btree_create_table_failed;
+    rc = sqlite3rowlockHistoryAddNewIndex(&pBtTrans->lockSavepoint, iTable);
+    if( rc ) goto trans_btree_create_table_failed;
+  }
 
   /* Associates iTable to iInsTable and iDelTable. */
   pNew = addTransRootPage(p, iTable, iInsTable, iDelTable, pKeyInfo);
@@ -385,7 +532,7 @@ trans_btree_create_table_failed:
 ** spevified by an argument. We delete 2 tables. One is a insertion table, 
 ** another is adeletion table.
 */
-static int transBtreeDropTable(Btree *p, int iTable){
+static int transBtreeDropTable(Btree *p, Pgno iTable){
   int rc = SQLITE_OK;
   BtreeTrans *pBtTrans = &p->btTrans;
   Btree *pBtreeTrans = pBtTrans->pBtree;
@@ -409,16 +556,24 @@ static int transBtreeDropTable(Btree *p, int iTable){
     rc = sqlite3BtreeDropTableOriginal(pBtreeTrans, pRootPage->iDel, &iMoved);
   }
   /* Delete the mapping and Free memory in DROP table command.*/
-  pData = (TransRootPage*)sqlite3HashI64Insert(&p->btTrans.rootPages, iTable, NULL);
-  sqlite3KeyInfoUnref(pData->pKeyInfo);
+  pData = (TransRootPage*)sqlite3HashI64Insert(&p->btTrans.rootPages, iTable, NULL,
+                                               NULL, rowlockDefaultMalloc,
+                                               rowlockDefaultFree);
+  if( pData->pKeyInfo ){
+    sqlite3KeyInfoUnref(pData->pKeyInfo);
+    /* Drop an index in shared memory. */
+    if( rowlockJudgeTableType(p, iTable)==INDEX_UNIQUE )
+      sqlite3rowlockPsmDropTable(&pBtTrans->psmHandle, iTable);
+  }
   sqlite3_free(pData);
+
   return rc;
 }
 
 /*
 ** Drop tables in both shared btree and transaction btree.
 */
-int sqlite3BtreeDropTableAll(Btree *p, int iTable, int *piMoved){
+int sqlite3BtreeDropTableAll(Btree *p, Pgno iTable, int *piMoved){
   int rc = SQLITE_OK;
   if( transBtreeIsUsed(p) ){
     rc = transBtreeDropTable(p, iTable);
@@ -439,7 +594,7 @@ int sqlite3BtreeDropTableAll(Btree *p, int iTable, int *piMoved){
 ** Count the record in a table. 
 ** In order to call sqlite3BtreeCount(), we create a cursor. 
 */
-static int btreeCountEntry(Btree *p, int iTable, i64 *pnEntry){
+static int btreeCountEntry(Btree *p, Pgno iTable, i64 *pnEntry){
   i64 nEntry = 0;                      /* Value to return in *pnEntry */
   int rc;                              /* Return code */
   BtCursor *pCur = NULL;
@@ -453,7 +608,7 @@ static int btreeCountEntry(Btree *p, int iTable, i64 *pnEntry){
     return rc;
   }
 
-  rc = sqlite3BtreeCount(pCur, &nEntry);
+  rc = sqlite3BtreeCount(p->db, pCur, &nEntry);
   sqlite3BtreeCloseCursorOriginal(pCur);
   sqlite3_free(pCur);
   if( rc ) return rc;
@@ -463,52 +618,11 @@ static int btreeCountEntry(Btree *p, int iTable, i64 *pnEntry){
 }
 
 /*
-** Convert a btree pointer into the iDb index that indicates
-** which database file in db->aDb[] the btree refers to.
-** Refer sqlite3SchemaToIndex() to understand the logic.
-*/
-static int rowlockBtreeToIndex(sqlite3 *db, Btree *p){
-  int i = -1000000;
-
-  assert( sqlite3_mutex_held(db->mutex) );
-  assert( p );
-  for(i=0; 1; i++){
-    assert( i<db->nDb );
-    if( db->aDb[i].pBt==p ){
-      break;
-    }
-  }
-  assert( i>=0 && i<db->nDb );
-  return i;
-}
-
-/* Judge if it is table or index. */
-static u8 rowlockIsIndex(Btree *p, int rootPage){
-  sqlite3 *db = p->db;
-  int iDb;
-  Schema *pSchema;
-  HashElem *i;
-
-  iDb = rowlockBtreeToIndex(db, p);
-  assert( sqlite3SchemaMutexHeld(db, iDb, 0) );
-  pSchema = db->aDb[iDb].pSchema;
-
-  for(i=sqliteHashFirst(&pSchema->idxHash); i; i=sqliteHashNext(i)){
-    Index *pIdx = (Index*)sqliteHashData(i);
-    if( pIdx->tnum==rootPage ){
-      return 1;
-    }
-  }
-
-  return 0;
-}
-
-/*
 ** Check if on one have a record lock in a table.
 ** Return SQLITE_OK if no one have a record lock in table.
 ** Return SQLITE_LOCKED if someone have a lock for any one of records in table.
 */
-static int rowlockLockRecordsQuery(Btree *p, int iTable){
+static int rowlockLockRecordsQuery(Btree *p, Pgno iTable){
   int rc = SQLITE_OK;
   BtCursor *pCur;
   int res;
@@ -599,8 +713,8 @@ int sqlite3TransBtreeClearTable(Btree *p, int iTable, int *pnChange){
       if( !pRootPage ) return SQLITE_NOMEM_BKPT;
     }
 
-    /* Set the flag */
-    pRootPage->deleteAll = 1;
+    /* Invalidate for all blob open on this table */
+    invalidateIncrblobCursorsOriginal(p, (Pgno)iTable, 0, 1);
 
     /* Count deleted record number if necessary. */
     if( pnChange ){
@@ -610,6 +724,10 @@ int sqlite3TransBtreeClearTable(Btree *p, int iTable, int *pnChange){
       *pnChange = nChange + nChangeIns; /* ToDo: sqlite3BtreeClearTable cannot return nChange by i64 type. */
     }
 
+    rc = sqlite3rowlockHistoryAddTableClear(&p->btTrans.lockSavepoint, iTable, pRootPage->deleteAll);
+    if( rc ) return rc;
+    /* Set the flag */
+    pRootPage->deleteAll = 1;
     return SQLITE_OK;
   }else{
     return sqlite3BtreeClearTable(p, iTable, pnChange);
@@ -618,34 +736,23 @@ int sqlite3TransBtreeClearTable(Btree *p, int iTable, int *pnChange){
 
 static int rowlockIsSequenceTable(BtCursor *pCur){
   BtCursorTrans *pCurTrans = &pCur->btCurTrans;
-  return pCurTrans->isSeqTbl;
+  return pCurTrans->type==TABLE_SEQUENCE;
+}
+
+static int rowlockIsUniqueIndex(BtCursor *pCur){
+  BtCursorTrans *pCurTrans = &pCur->btCurTrans;
+  return pCurTrans->type==INDEX_UNIQUE;
 }
 
 /* 
-** Judge whether the cursor is of sqlite_sequence table or not.
-** The result is stored into pCurTrans->isSeqTbl.
+** Judge a table type of cursor.
+** The result is stored into pCurTrans->type.
 */
-static void rowlockJudgeSequenceTable(Btree *p, BtCursor *pCur){
+static void rowlockJudgeCursorType(Btree *p, BtCursor *pCur,
+                                   struct KeyInfo *pKeyInfo){
   BtCursorTrans *pCurTrans = &pCur->btCurTrans;
-  Schema *pSchema;
-  int iDb;
 
-#ifdef SQLITE_TEST
-  if( p->db->nDb==0 ){
-    pCurTrans->isSeqTbl = 0;
-    return;
-  }
-#endif
-
-  iDb = rowlockBtreeToIndex(p->db, p);
-
-  assert( sqlite3SchemaMutexHeld(p->db, iDb, 0) );
-  pSchema = p->db->aDb[iDb].pSchema;
-  if( pSchema->pSeqTab && (i64)pSchema->pSeqTab->tnum==(i64)pCur->pgnoRoot ){
-    pCurTrans->isSeqTbl = 1;
-  }else{
-    pCurTrans->isSeqTbl = 0;
-  }
+  pCurTrans->type = rowlockJudgeTableType(p, pCur->pgnoRoot);
 }
 
 /*
@@ -653,7 +760,7 @@ static void rowlockJudgeSequenceTable(Btree *p, BtCursor *pCur){
 */
 static int transBtreeCursor(
   Btree *p,                                   /* The btree */
-  int iTable,                                 /* Root page of table to open */
+  Pgno iTable,                                 /* Root page of table to open */
   int wrFlag,                                 /* 1 to write. 0 read-only */
   struct KeyInfo *pKeyInfo,                   /* First arg to xCompare() */
   BtCursor *pCur                              /* Write new cursor here */
@@ -665,8 +772,8 @@ static int transBtreeCursor(
   BtCursor *pCurTransIns;
   BtCursor *pCurTransDel;
   TransRootPage *pRootPage;
-  int iInsTable;
-  int iDelTable;
+  Pgno iInsTable;
+  Pgno iDelTable;
 
   /* Do nothing if it is transaction btree. */
   if( iTable==1 || !transBtreeIsUsed(p) ){
@@ -683,6 +790,12 @@ static int transBtreeCursor(
   pRootPage = (TransRootPage*)sqlite3HashI64Find(&pBtTrans->rootPages, iTable);
   if( !pRootPage || pRootPage->iIns==0 ){
     TransRootPage *pRootPage = NULL;
+    if( !sqlite3BtreeIsInTransOriginal(pBtreeTrans) && !wrFlag ){
+      pCurTrans->pCurIns = NULL;
+      pCurTrans->pCurDel = NULL;
+      pCurTrans->state = CURSOR_NOT_USE;
+      return SQLITE_OK;
+    }
     rc = sqlite3TransBtreeCreateTable(p, iTable, pKeyInfo, &pRootPage);
     if( rc ) return rc;
     iInsTable = pRootPage->iIns;
@@ -713,7 +826,7 @@ static int transBtreeCursor(
   pCurTrans->pCurIns = pCurTransIns;
   pCurTrans->pCurDel = pCurTransDel;
   pCurTrans->state = CURSOR_USE_SHARED;
-  rowlockJudgeSequenceTable(p, pCur);
+  rowlockJudgeCursorType(p, pCur, pKeyInfo);
 
   return SQLITE_OK;
 
@@ -738,25 +851,26 @@ trans_btree_cursor_failed:
 ** If 'flag' is 1, it is in commit process and we can create a write cursor for shared
 ** btree. A write transaction was already started by sqlite3BtreeBeginTransForCommit().
 */
-int sqlite3BtreeCursorAll(Btree *p, int iTable, int wrFlag, 
+int sqlite3BtreeCursorAll(Btree *p, Pgno iTable, int wrFlag, 
                           struct KeyInfo *pKeyInfo, BtCursor *pCur, int flag){
   int rc;
 
-  if( p->sharable && iTable==1 && wrFlag>0 && !sqlite3BtreeIsInTransOriginal(p) ){
+  if (p->sharable && iTable==SCHEMA_ROOT && wrFlag>0 && !sqlite3BtreeIsInTransOriginal(p)) {
     rc = sqlite3BtreeBeginTransOriginal(p, 1, 0);
-    if( rc ) return rc;
+    if (rc) return rc;
   }
 
   sqlite3BtreeCursorZero(pCur);
-  if( p->sharable && iTable!=1 && !flag ){
+  if (p->sharable && iTable!=SCHEMA_ROOT && flag==ROW_LOCK_CURSOR_IN_TRANS) {
     rc = sqlite3BtreeCursorOriginal(p, iTable, 0, pKeyInfo, pCur);
-  }else{
+  }
+  else {
     rc = sqlite3BtreeCursorOriginal(p, iTable, wrFlag, pKeyInfo, pCur);
   }
-  if( rc ) return rc;
+  if ( rc ) return rc;
 
   rc = transBtreeCursor(p, iTable, wrFlag, pKeyInfo, pCur);
-  if( rc ){
+  if ( rc ) {
     sqlite3BtreeCloseCursorOriginal(pCur);
   }
 
@@ -882,17 +996,24 @@ btree_idxkey_compare_done:
   }
 }
 
-/* Return 1 if thecursor is pointing valid record. */
+/* Return 1 if the cursor is pointing valid record. */
 static int btreeCursorIsPointing(BtCursor *pCur){
   return pCur && pCur->eState==CURSOR_VALID;
 }
 
+/*
+** Return 1 if number of pages in the database is 0.
+*/
+static int isBtreeEmpty(Btree *pBtree){
+  return pBtree->pBt->nPage==0;
+}
+
 /* 
 ** Move a cursor on the basis of key info.
-** There are 3 paterns about a record structure.
+** There are 3 patterns about a record structure.
 ** Record data consists of record-key and record-value.
 ** 1. pKey is NULL. This case is a normal table.
-*: 2. pKey has record-key. This case is an index.
+** 2. pKey has record-key. This case is an index.
 ** 3. pKey has record-key and record-value. This case is a WITHOUT ROWID table.
 ** For the pattern-3, this function compares record by only record-key.
 */
@@ -936,9 +1057,16 @@ int sqlite3TransBtreeInsert(
   int btFlags = flags;
   int res = 1;
   int isUpdate = 0;
+  int isTransUpdate = 0;
 
   if( !pCurIns ){
     return sqlite3BtreeInsert(pCur, pX, flags, seekResult);
+  }
+
+  /* Save other cursor that point to the same btree */
+  if( pCur->curFlags & BTCF_Multiple ){
+      rc = saveAllCursorsOriginal(pCur->pBtree->pBt, pCur->pgnoRoot, pCur);
+      if( rc ) return rc;
   }
 
   /* Judge whether it is update case or append case.
@@ -956,13 +1084,43 @@ int sqlite3TransBtreeInsert(
         isUpdate = 1;
       }
     }
+    if( cursorTransIsUsed(pCur) ) {
+    /* Detect Update on Transaction Btree */
+      rc = btreeCursorMovetoKey(pCurIns, pX->pKey, pX->nKey, &res);
+      if( rc ) return rc;
+      btFlags = BTREE_APPEND;
+      if( res==0 ) {
+        isTransUpdate = 1;
+      }
+    }
   }
 
   /*
-  ** We don't get a record lock for index and sqlite_sequence table. sqlite_sequence is used
-  ** for auto-increment feature.
+  ** Get a row/index lock. But we don't get a record lock for sqlite_sequence
+  ** table and non unique index. sqlite_sequence is used for auto-increment feature.
   */
-  if( !rowlockIsSequenceTable(pCur) && !pCur->pKeyInfo ){
+  if( pCur->pKeyInfo ){
+    if( rowlockIsUniqueIndex(pCur) ){
+      BtreeTrans *pBtTrans = &pCur->pBtree->btTrans;
+      rc = sqlite3rowlockPsmLockRecord(&pBtTrans->psmHandle, pCur->pgnoRoot,
+                                       (unsigned char*)pX->pKey, (u32)pX->nKey,
+                                       pCur->pBtree, pCur->pKeyInfo->aColl[0]);
+      if( rc==SQLITE_LOCKED ){
+        /* Unique index constraint error. */
+        return SQLITE_CONSTRAINT;
+      }else if( rc==SQLITE_OK ){
+        rc = sqlite3rowlockHistoryAddIndex(&pBtTrans->lockSavepoint,
+                                           pCur->pgnoRoot, pX->nKey, pX->pKey,
+                                           pCur->pKeyInfo->aColl[0]);
+        if( rc ) return rc;
+      }else if( rc==SQLITE_DONE ){
+        /* Do nothing. */
+      }else{
+        /* Error. */
+        return rc;
+      }
+    }
+  }else if( !rowlockIsSequenceTable(pCur) ){
     /* Lock record */
     rc = sqlite3rowlockIpcLockRecord(&pCur->pBtree->btTrans.ipcHandle, pCur->pgnoRoot, pX->nKey);
     if( rc==SQLITE_DONE ){
@@ -987,6 +1145,8 @@ int sqlite3TransBtreeInsert(
   if( isUpdate ){
     rc = sqlite3BtreeInsert(pCurDel, pX, 0, 0);
     if( rc ) return rc;
+    rc = btreeMovetoOriginal(pCurDel, pX->pKey, pX->nKey, 0, &res);
+    if (rc) return rc;
   }
 
   rc = sqlite3BtreeInsert(pCurIns, pX, btFlags, 0);
@@ -996,10 +1156,53 @@ int sqlite3TransBtreeInsert(
   if( rc ) return rc;
   assert( sqlite3BtreeCursorIsValid(pCurIns) );
 
-  rc = btreeMovetoOriginal(pCur, pX->pKey, pX->nKey, 0, &res);
-  if( rc ) return rc;
+  /*Does not move the pCur when Update row on shared btree or row in 
+  transaction btree*/
+  if( !isUpdate && !isTransUpdate ) {
+    rc = btreeMovetoOriginal(pCur, pX->pKey, pX->nKey, 0, &res);
+    if( rc ) return rc;
+  }
 
-  pCurTrans->state = CURSOR_USE_SHARED | CURSOR_USE_TRANS;
+  /* Success inserting to trans (ins & del), invalidate incrblob cursor
+  And pCur already move to corresponding position */
+  invalidateIncrblobCursorsOriginal(pCur->pBtree, pCur->pgnoRoot, pX->nKey, 0);
+
+  /* When update on transaction btree, return cursor state to USE_TRANS so that
+  it does not move the pCur in OP_Next action*/
+  if( isTransUpdate ){
+    pCurTrans->state = CURSOR_USE_TRANS;
+  } else {
+    pCurTrans->state = CURSOR_USE_SHARED | CURSOR_USE_TRANS;
+  }
+
+  return SQLITE_OK;
+}
+
+/*
+** This function stres a payloadt into ppKey with memory allocation.
+** If the memory space is already allocated (*ppKey != NULL),
+** it is reused. Otherwise new memory is allocated.
+*/
+static int btreePayloadWithMalloc(BtCursor *pCur, u32 *pnKey, void **ppKey){
+  int rc = SQLITE_OK;        /* Status code */
+  i64 nKey = 0;
+  void *pKey = NULL;
+
+  nKey = sqlite3BtreePayloadSizeOriginal(pCur);
+  assert( nKey==(i64)(int)nKey );
+
+  pKey = (char*)sqlite3Realloc(*ppKey, nKey);
+  if( !pKey ) return SQLITE_NOMEM_BKPT;
+
+  rc = sqlite3BtreePayloadOriginal(pCur, 0, (u32)nKey, pKey);
+  if( rc ){
+    sqlite3_free(pKey);
+    *ppKey = NULL;
+    return rc;
+  }
+
+  *pnKey = (u32)nKey;
+  *ppKey = pKey;
 
   return SQLITE_OK;
 }
@@ -1009,83 +1212,148 @@ int sqlite3TransBtreeInsert(
 ** Remember Deleted record in a transaction.
 */
 int sqlite3TransBtreeDelete(BtCursor *pCur, u8 flags){
+  int rc = SQLITE_OK;        /* Status code */
   BtCursorTrans *pCurTrans = &pCur->btCurTrans;
   BtCursor *pCurIns =  pCurTrans->pCurIns;
   BtCursor *pCurDel =  pCurTrans->pCurDel;
+  BtreeTrans *pBtTrans = &pCur->pBtree->btTrans;
+  i64 nKey = 0;
+  u32 u32nKey;
+  void *pKey = NULL;
+  UnpackedRecord* pIdxKey = NULL;
+  BtreePayload x = {0};   /* Payload to be inserted */
+  int resDel = 0;
 
   if( !pCurIns ){
     return sqlite3BtreeDelete(pCur, flags);
   }
 
-  if( cursorTransIsUsed(pCurTrans) ){
+    /* Save to cursor to detect modify conflict */
+  if( pCur->curFlags & BTCF_Multiple ){
+      rc = saveAllCursorsOriginal(pCur->pBtree->pBt, pCur->pgnoRoot, pCur);
+      if( rc ) return rc;
+  }
+
+  if( cursorTransIsUsed(pCur) ){
     /*
     ** If the cursor is pointing a transaction tree, the row was
-    ** added in a transaction. So we delete the row from
-    ** transaction btree.
+    ** inserted/updated in a transaction
+    ** - In case insertion, we can delete row on transaction btree
+    ** and unlock unique key/rowid
+    ** - In case updation, we can delete row on transaction btree but
+    ** can not unlock the unique key/rowid
     */
-    return sqlite3BtreeDelete(pCurIns, flags);
-  }else{
-    /*
-    ** If the curor is pointing shared btree, we delete the row
-    ** shared btree.
-    */
-    int rc = SQLITE_OK;        /* Status code */
-    i64 nKey = 0;
-    void *pKey = NULL;
-    BtreePayload x = {0};   /* Payload to be inserted */
-
-    if( pCur->pKeyInfo ){
-      /* For an index btree. */
-      nKey = sqlite3BtreePayloadSizeOriginal(pCur);
-      assert( nKey==(i64)(int)nKey );
-      pKey = (char*)sqlite3MallocZero(nKey);
-      if( !pKey ){
-        return SQLITE_NOMEM_BKPT;
-      }
-      rc = sqlite3BtreePayloadOriginal(pCur, 0, (u32)nKey, pKey);
-      if( rc ) goto trans_btree_delete_end;
+    if( pCur->pKeyInfo && rowlockIsUniqueIndex(pCur) ){
+      rc = btreePayloadWithMalloc(pCurIns, &u32nKey, &pKey);
+      if( rc ) return rc;
+      sqlite3rowlockPsmUnlockRecord(&pBtTrans->psmHandle, pCur->pgnoRoot,
+                                    (unsigned char*)pKey, u32nKey,
+                                    pCur->pBtree, pCur->pKeyInfo->aColl[0]);
+      sqlite3_free(pKey);
     }else{
-      /* For a table btree. */
-      nKey = sqlite3BtreeIntegerKeyOriginal(pCur);
-      pKey = NULL;
+      /* Unlock the unused rowid if it is not existed in shared btree */
+      nKey = sqlite3BtreeIntegerKeyOriginal(pCurIns);
+      rc = sqlite3BtreeMovetoUnpacked(pCurDel, pIdxKey, nKey, 0, &resDel);
+      if( rc ) return rc;
+      if( resDel!=0 )
+        sqlite3rowlockIpcUnlockRecord(&pBtTrans->ipcHandle, pCur->pgnoRoot, nKey);
+    }
+    return sqlite3BtreeDelete(pCurIns, flags);
+  }
 
-      /* Lock record */
-      rc = sqlite3rowlockIpcLockRecord(&pCur->pBtree->btTrans.ipcHandle, pCur->pgnoRoot, nKey);
-      if( rc==SQLITE_DONE ){
-        /* Do nothing */
-      }else if( rc ){
-        return rc;
+  /*
+  ** If the curor is pointing shared btree, we delete the row
+  ** shared btree.
+  */
+  if( pCur->pKeyInfo ){
+    /* For an index btree. */
+    rc = btreePayloadWithMalloc(pCur, &u32nKey, &pKey);
+    if( rc ) return rc;
+    nKey = u32nKey;
+
+    /* Get index lock if it is unique index. */
+    if( rowlockIsUniqueIndex(pCur) ){
+      /* Lock index. */
+      rc = sqlite3rowlockPsmLockRecord(&pBtTrans->psmHandle, pCur->pgnoRoot,
+                                       (unsigned char*)pKey, u32nKey,
+                                       pCur->pBtree, pCur->pKeyInfo->aColl[0]);
+      if( rc==SQLITE_LOCKED ){
+        /* Unique index constraint error. */
+        rc = SQLITE_CONSTRAINT;
+        goto trans_btree_delete_end;
+      }else if( rc==SQLITE_OK ){
+        rc = sqlite3rowlockHistoryAddIndex(&pCur->pBtree->btTrans.lockSavepoint,
+                                           pCur->pgnoRoot, nKey, pKey,
+                                           pCur->pKeyInfo->aColl[0]);
+        if( rc ) goto trans_btree_delete_end;
+      }else if( rc==SQLITE_DONE ){
+        /* Do nothing if I have already a lock. */
       }else{
-        rc = sqlite3rowlockHistoryAddRecord(&pCur->pBtree->btTrans.lockSavepoint, pCur->pgnoRoot, nKey);
-        if( rc ) return rc;
+        /* Error. */
+        goto trans_btree_delete_end;
       }
     }
+  }else{
+    /* For a table btree. */
+    nKey = sqlite3BtreeIntegerKeyOriginal(pCur);
+    pKey = NULL;
 
-    /* Operate INSERT */
-    x.pKey = pKey;
-    x.nKey = nKey;
-    rc = sqlite3BtreeInsert(pCurDel, &x, OPFLAG_APPEND, 0);
+    /* Lock record */
+    rc = sqlite3rowlockIpcLockRecord(&pBtTrans->ipcHandle, pCur->pgnoRoot, nKey);
+    if( rc==SQLITE_DONE ){
+      /* Do nothing if I have already a lock. */
+    }else if( rc ){
+      return rc;
+    }else{
+      rc = sqlite3rowlockHistoryAddRecord(&pBtTrans->lockSavepoint, pCur->pgnoRoot, nKey);
+      if( rc ) return rc;
+    }
+  }
+
+  /* Operate INSERT */
+  x.pKey = pKey;
+  x.nKey = nKey;
+  rc = sqlite3BtreeInsert(pCurDel, &x, OPFLAG_APPEND, 0);
+  if( rc ) goto trans_btree_delete_end;
+
+    /* Invalidate cursor after delete by inserting to delete table on transaction tree */
+    if ( !pKey ) {
+      invalidateIncrblobCursorsOriginal(pCur->pBtree, pCur->pgnoRoot, nKey, 0);
+    }
 
 trans_btree_delete_end:
-    sqlite3_free(pKey);
-    return rc;
-  }
+  sqlite3_free(pKey);
+  return rc;
 }
 
 /* Search and move pCur to valid row. */
-static int btreeSeekToExist(BtCursor *pCur, 
+static int btreeSeekToExist(BtCursor *pCur,
                      int (*xAdvance)(BtCursor*, int),
                      int flags){
   int rc = SQLITE_OK;
   BtCursorTrans *pCurTrans = &pCur->btCurTrans;
-  BtCursor *pCurIns =  pCurTrans->pCurIns;
   BtCursor *pCurDel =  pCurTrans->pCurDel;
+  i64 nOldKey = 0;
 
-  while( btreeCursorIsPointing(pCur) && 
+  /* Get current key before move */
+  if( btreeCursorIsPointing(pCur) ){
+    rc = btreeValidTableKey( pCur, &nOldKey, xAdvance==sqlite3BtreeNext );
+    if( rc ) return rc;
+  }
+
+  if( pCurDel->eState>=CURSOR_REQUIRESEEK && !isBtreeEmpty(pCurDel->pBtree) ){
+    int isDifferentRow;
+    /* Restore the cursor position if saveCursorPosition() was called */
+    rc = sqlite3BtreeCursorRestoreOriginal(pCurDel, &isDifferentRow);
+    if( rc ) return rc;
+  }
+
+  while( btreeCursorIsPointing(pCur) &&
           btreeCursorIsPointing(pCurDel) ){
     i64 cmp = 0;
     rc = btreeKeyCompareCursors(pCur, pCurDel, &cmp);
     if( rc ) return rc;
+
     if( (xAdvance==sqlite3BtreeNext && cmp>0) ||
         (xAdvance==sqlite3BtreePrevious && cmp<0) ){
       /* Move pCurDel to the nearest row of pCur. */
@@ -1093,6 +1361,12 @@ static int btreeSeekToExist(BtCursor *pCur,
     }else if( cmp==0 ){
       /* 101: Record in shared btree is deleted. */
       rc = xAdvance(pCur, flags);
+      /* Detect if transver meet abnormal rowid/key not ACS or DES order after
+      valid delete case */
+      if( rc==SQLITE_OK ){
+        rc = btreeValidTableKey( pCur, &nOldKey, xAdvance==sqlite3BtreeNext );
+        if ( rc ) return rc;
+      }
     }else{
       /* pCur is pointing a valid row. */
       return SQLITE_OK;
@@ -1204,7 +1478,7 @@ int sqlite3BtreeLastAll(BtCursor *pCur, int *pRes){
   int rc = SQLITE_OK;
   BtCursorTrans *pCurTrans = &pCur->btCurTrans;
   TransRootPage *pRootPage = NULL;
-  int res = 1;
+  int res = 0xFF;
   int resIns = 1;
   int resDel = 1;
 
@@ -1212,6 +1486,12 @@ int sqlite3BtreeLastAll(BtCursor *pCur, int *pRes){
   if( rc ) return rc;
 
   if( !transBtreeCursorIsUsed(pCur) ){
+    /* If cursor is already on the last entry of the btree then sqlite3BtreeLast
+    ** is NO-OP, value of res will not change, set the value of res to 0
+    */
+    if (res == 0xFF) {
+      res = 0;
+    }
     *pRes = res;
     return SQLITE_OK;
   }
@@ -1238,21 +1518,100 @@ int sqlite3BtreeAdvanceAll(BtCursor *pCur, int flags, int(*xAdvance)(BtCursor*, 
   int res;
   BtCursorTrans *pCurTrans = &pCur->btCurTrans;
   BtCursor *pCurIns = pCurTrans->pCurIns;
+  i64 nOldKey = 0;
 
   assert( xAdvance==sqlite3BtreePrevious || xAdvance==sqlite3BtreeNext );
+
+  /* Get current key before move */
+  if( btreeCursorIsPointing(pCur) ){
+    rc = btreeValidTableKey( pCur, &nOldKey, xAdvance==sqlite3BtreeNext );
+    if( rc ) return rc;
+  }
 
   if( !transBtreeCursorIsUsed(pCur) ){
     return xAdvance(pCur, flags);
   }
 
+  /*
+  ** If both pCurIns and pCur are pointing to a valid record,
+  ** maybe the position of these cursors is not correct due to
+  ** the previous operation.
+  ** We need to check and correct the position:
+  ** In case of OP_Next:
+  ** - If pCur is used, pCurIns should not point to an entry that is
+  ** smaller than pCur's entry.
+  ** - If pCurIns is used, pCur should not point to an entry that is
+  ** smaller than pCurIns's entry.
+  ** In case of OP_Prev:
+  ** - If pCur is used, pCurIns should not point to an entry that is
+  ** greater than pCur's entry.
+  ** - If pCurIns is used, pCur should not point to an entry that is
+  ** greater than pCurIns's entry.
+  */
+  while( btreeCursorIsPointing(pCurIns) && btreeCursorIsPointing(pCur) ){
+    i64 cmp;
+    /* Check the position of pCur and pCurIns */
+    rc = btreeKeyCompareCursors(pCur, pCurIns, &cmp);
+    if( rc ) return rc;
+    if( cursorSharedIsUsed(pCurTrans) ) {
+      if( (xAdvance==sqlite3BtreeNext && cmp>0)
+        || (xAdvance==sqlite3BtreePrevious && cmp<0) ){
+        /* pCurIns is pointing to the wrong position, move it to the next position */
+        rc = xAdvance(pCurIns, flags);
+        if( rc!=SQLITE_OK && rc!=SQLITE_DONE ) return rc;
+      }else{
+        break;
+      }
+    }
+    if( cursorTransIsUsed(pCur) ){
+      if( (xAdvance==sqlite3BtreeNext && cmp<0)
+        || (xAdvance==sqlite3BtreePrevious && cmp>0) ) {
+        /* pCur is pointing to the wrong position, move it to the next position */
+        rc = xAdvance(pCur, flags);
+        if( rc!=SQLITE_OK && rc!=SQLITE_DONE ) return rc;
+      }else{
+        break;
+      }
+    }
+  }
+
   if( cursorSharedIsUsed(pCurTrans) ){
     rc = xAdvance(pCur, flags);
     if( rc!=SQLITE_OK && rc!=SQLITE_DONE ) return rc;
+
+    /* Check shared cursor after move */
+    if ( btreeCursorIsPointing(pCur) && nOldKey ){
+      rc = btreeValidTableKey( pCur, &nOldKey, xAdvance==sqlite3BtreeNext );
+      if ( rc ) return rc;
+    }
   }
 
-  if( cursorTransIsUsed(pCurTrans) ){
-    rc = xAdvance(pCurIns, flags);
-    if( rc!=SQLITE_OK && rc!=SQLITE_DONE ) return rc;
+  if( cursorTransIsUsed(pCur) ){
+    if( pCurIns->eState>=CURSOR_REQUIRESEEK && isBtreeEmpty(pCurIns->pBtree) ){
+      int isDifferentRow;
+      /* If rollback or commit transaction, insert table is dropped */
+      if( pCur->eState>=CURSOR_REQUIRESEEK ){
+        /* Restore the cursor position of pCur if saveCursorPosition() was called */
+        rc = sqlite3BtreeCursorRestoreOriginal(pCur, &isDifferentRow);
+        if( rc ) return rc;
+      }else if( pCur->eState==CURSOR_INVALID && pCurIns->eState==CURSOR_REQUIRESEEK ){
+        /* Try to restore the cursor position of pCur using pKey and nKey of pCurIns.
+        ** If record is found in pCur then move pCur to the next position.
+        ** If record is not found, pCur should be CURSOR_INVALID */
+        pCur->pKey = pCurIns->pKey;
+        pCur->nKey = pCurIns->nKey;
+        pCur->eState = CURSOR_REQUIRESEEK;
+        rc = sqlite3BtreeCursorRestoreOriginal(pCur, &isDifferentRow);
+        if( rc ) return rc;
+        rc = xAdvance(pCur, flags);
+        if( rc!=SQLITE_OK && rc!=SQLITE_DONE ) return rc;
+      }
+      /* Invalidate pCurIns */
+      pCurIns->eState = CURSOR_INVALID;
+    }else{
+      rc = xAdvance(pCurIns, flags);
+      if( rc!=SQLITE_OK && rc!=SQLITE_DONE ) return rc;
+    }
   }
 
   /* validate the cursor. */
@@ -1285,31 +1644,14 @@ static int btreeKeyCompareOfCursor(UnpackedRecord *pIdxKey, i64 intKey, BtCursor
     *pRes = intKey - nKey;
   }else{
     int rc;
-    void *pKey;       /* Packed key */
-    u32 nKey;         /* Size of pKey */
+    void *pKey = NULL; /* Packed key */
+    u32 nKey;          /* Size of pKey */
 
-    assert( pCur->pKeyInfo );
-    /* 
-    ** Calculate pKey and nKey which is required for calling 
-    ** the comparison function.
-    */
-    nKey = sqlite3BtreePayloadSizeOriginal(pCur);
-    assert( nKey==(i64)(int)nKey );
-
-    pKey = (char*)sqlite3DbMallocZero(pCur->pKeyInfo->db, nKey);
-    if( !pKey ){
-      rc = SQLITE_NOMEM_BKPT;
-      goto btree_idxkey_compare_done;
-    }
-
-    rc = sqlite3BtreePayloadOriginal(pCur, 0, nKey, pKey);
-    if( rc ) goto btree_idxkey_compare_done;
+    rc = btreePayloadWithMalloc(pCur, &nKey, &pKey);
+    if( rc ) return rc;
 
     *pRes = btreeKeyCompare(nKey, pKey, pIdxKey);
-
-btree_idxkey_compare_done:
-    sqlite3DbFree(pCur->pKeyInfo->db, pKey);
-    if( rc ) return rc;
+    sqlite3_free(pKey);
   }
   return SQLITE_OK;
 }
@@ -1389,16 +1731,50 @@ static int sqlite3BtreeMovetoSameSide(BtCursor *pCur, int opcode, int res, int r
     }
   }
 
-  /* Decide which cursor should be used. We use a closer cursor. */
+  /*
+  ** Decide which cursor should be used.
+  ** The pCurTrans->state and pRes value is based on
+  ** - direction: 1 (sqlite3BtreeNext) or -1 (sqlite3BtreePrevious)
+  ** - resCmp: 1 (pCur > pCurIns) or -1 (pCur < pCurIns)
+  ** - res: 1 (pCur > pCurTarget) or -1 (pCur < pCurTarget)
+  ** - resIns: 1 (pCurIns > pCurTarget) or -1 (pCurIns < pCurTarget)
+  **
+  ** |direction|resCmp|res|resIns|pCurTrans->state |pRes|   Remark      |
+  ** |---------|------|---|------|-----------------|----|---------------|
+  ** |    1    |   1  | 1 |   1  |CURSOR_USE_TRANS |  1 |               |
+  ** |    1    |   1  | 1 |  -1  |CURSOR_USE_SHARED|  1 |               |
+  ** |    1    |   1  |-1 |   1  |        x        |  x |Never happenned|
+  ** |    1    |   1  |-1 |  -1  |CURSOR_USE_SHARED| -1 |               |
+  ** |    1    |  -1  | 1 |   1  |CURSOR_USE_SHARED|  1 |               |
+  ** |    1    |  -1  | 1 |  -1  |        x        |  x |Never happenned|
+  ** |    1    |  -1  |-1 |   1  |CURSOR_USE_TRANS |  1 |               |
+  ** |    1    |  -1  |-1 |  -1  |CURSOR_USE_TRANS | -1 |               |
+  ** |   -1    |   1  | 1 |   1  |CURSOR_USE_TRANS |  1 |               |
+  ** |   -1    |   1  | 1 |  -1  |CURSOR_USE_TRANS | -1 |               |
+  ** |   -1    |   1  |-1 |   1  |        x        |  x |Never happenned|
+  ** |   -1    |   1  |-1 |  -1  |CURSOR_USE_TRANS | -1 |               |
+  ** |   -1    |  -1  | 1 |   1  |CURSOR_USE_SHARED|  1 |               |
+  ** |   -1    |  -1  | 1 |  -1  |        x        |  x |Never happenned|
+  ** |   -1    |  -1  |-1 |   1  |CURSOR_USE_SHARED| -1 |               |
+  ** |   -1    |  -1  |-1 |  -1  |CURSOR_USE_SHARED| -1 |               |
+  */
   rc = btreeKeyCompareCursors(pCur, pCurIns, &resCmp);
   if( rc ) return rc;
-  if( direction*resCmp<=0 ){
-    pCurTrans->state = CURSOR_USE_SHARED;
+  if( res*resIns<0 ){
+    if( direction*resCmp<0 ) pCurTrans->state = CURSOR_USE_TRANS;
+    else pCurTrans->state = CURSOR_USE_SHARED;
+    *pRes = direction;
   }else{
-    pCurTrans->state = CURSOR_USE_TRANS;
+    if( res<0 ){
+      if( direction*resCmp<0 ) pCurTrans->state = CURSOR_USE_TRANS;
+      else pCurTrans->state = CURSOR_USE_SHARED;
+    }else{
+      if( direction*resCmp<0 ) pCurTrans->state = CURSOR_USE_SHARED;
+      else pCurTrans->state = CURSOR_USE_TRANS;
+    }
+    *pRes = res;
   }
 
-  *pRes = direction;
   return SQLITE_OK;
 }
 
@@ -1423,28 +1799,56 @@ static int btreeIsDeleted(BtCursor *pCur, int *pRet){
   if( !pCur->pKeyInfo ){
     nKey = sqlite3BtreeIntegerKeyOriginal(pCur);
   }else{
-    /* 
-    ** Calculate pKey and nKey which is required for calling 
-    ** the comparison function.
-    */
-    nKey = sqlite3BtreePayloadSizeOriginal(pCur);
-    assert( nKey==(i64)(int)nKey );
-
-    pKey = (char*)sqlite3DbMallocZero(pCur->pKeyInfo->db, nKey);
-    if( !pKey ) return SQLITE_NOMEM_BKPT;
-
-    rc = sqlite3BtreePayloadOriginal(pCur, 0, (u32)nKey, pKey);
-    if( rc ){
-      sqlite3DbFree(pCur->pKeyInfo->db, pKey);
-      return rc;
-    }
+    u32 n;
+    rc = btreePayloadWithMalloc(pCur, &n, &pKey);
+    if( rc ) return rc;
+    nKey = n;
   }
 
   /* Search for pCurDel. */
+  if( pCurDel->eState>=CURSOR_REQUIRESEEK && !isBtreeEmpty(pCurDel->pBtree) ){
+    int isDifferentRow;
+    /* Restore the cursor position if saveCursorPosition() was called */
+    rc = sqlite3BtreeCursorRestoreOriginal(pCurDel, &isDifferentRow);
+    if( rc ) return rc;
+  }
   rc = btreeCursorMovetoKey(pCurDel, pKey, nKey, pRet);
-  if( pCur->pKeyInfo ) sqlite3DbFree(pCur->pKeyInfo->db, pKey);
+  if( pKey ) sqlite3_free(pKey);
 
   return rc;
+}
+
+/*
+** Count the number of entries having index key. The start point for the
+** search is a current position of cursor, and xAdvance is a direction.
+** For example, btree has 8 entries of which keys are 1, 2, 2, 3, 4, 4, 4, 5.
+** If the cursor points to 2(left-most) and search key is 2, pCount is set to 2.
+** If the cursor points to 3 and serch key is 3, pCount is set to 1.
+** If the cursor points to 4(right-most) and search key is 4, pCount is set to 3.
+*/
+static int btreeCursorCountSameKey(BtCursor *pCur, UnpackedRecord *pIdxKey,
+                                   int (*xAdvance)(BtCursor*, int), u64 *pCount){
+  int rc;
+  i8 default_rc_bak = pIdxKey->default_rc;
+  i64 cmp;
+  u64 count = 0;
+
+  pIdxKey->default_rc = 0;
+
+  do {
+    rc = btreeKeyCompareOfCursor(pIdxKey, 0, pCur, &cmp);
+    if( rc ) return rc;
+    if( cmp!=0 ) break;
+    count++;
+    rc = xAdvance(pCur, 0);
+    if( rc==SQLITE_DONE ) break;
+  } while( rc==SQLITE_OK );
+
+  pIdxKey->default_rc = default_rc_bak;
+
+  *pCount = count;
+
+  return SQLITE_OK;
 }
 
 /*
@@ -1456,9 +1860,9 @@ static int btreeIsDeleted(BtCursor *pCur, int *pRet){
 ** OP_SeekLE, OP_SeekGE, OP_SeekGT), we have to take case of the search
 ** direction. After this function, the cursor is moved based on pRes value.
 ** If cursors are pointing the different side from the key (Ex: pCur is pointing
-** at an entry that is larger than key and pCur is pointingat an entry that is 
+** at an entry that is larger than key and pCur is pointing at an entry that is
 ** smaller than key), it is difficult to move cursors based on pRes. Therefore 
-** both cursors has to be pointing the same side. This is implaemnted in 
+** both cursors has to be pointing the same side. This is implemented in
 ** sqlite3BtreeMovetoSameSide().
 */
 int sqlite3BtreeMovetoUnpackedAll(BtCursor *pCur, UnpackedRecord *pIdxKey, 
@@ -1470,14 +1874,89 @@ int sqlite3BtreeMovetoUnpackedAll(BtCursor *pCur, UnpackedRecord *pIdxKey,
   BtCursor *pCurIns = pCurTrans->pCurIns;
   BtCursor *pCurDel = pCurTrans->pCurDel;
   TransRootPage *pRootPage = NULL;
+  u8 eqSeen = 0, eqSeenIns = 0;
 
   /* Move pCur. */
+  if( pIdxKey ) pIdxKey->eqSeen = 0;
   rc = sqlite3BtreeMovetoUnpacked(pCur, pIdxKey, intKey, biasRight, &res);
   if( rc ) return rc;
 
   if( !transBtreeCursorIsUsed(pCur) ){
     *pRes = res;
     return SQLITE_OK;
+  }
+
+  /*
+  ** If an index entry is found in shared btree (pIdxKey->eqSeen!=0),
+  ** it checks whether the entry is deleted or not.
+  ** To confirm it, it compare the count of entries having target key
+  ** of sharedbtree and deletion btree. If the count is same, all entries
+  ** are deleted, so eqSeen should not set 1. Otherwise, there are at
+  ** least one valid entry having search key in shared btree, so eqSeen
+  ** can be set to 1.
+  */
+  if( pIdxKey && pIdxKey->eqSeen && pIdxKey->default_rc!=0 ){
+    u64 count = 0, countDel = 0;
+    i64 resCmp;
+    int (*xAdvance)(BtCursor*, int);
+    i8 default_rc_bak = pIdxKey->default_rc;
+
+    if( opcode==OP_SeekGE || opcode==OP_SeekGT ){
+      xAdvance = sqlite3BtreeNext;
+    }else {
+      assert( opcode==OP_SeekLE || opcode==OP_SeekLT);
+      xAdvance = sqlite3BtreePrevious;
+    }
+
+    /*
+    ** If pCur is not pointing an index key, move pCur to point to
+    ** the index key.
+    */
+    pIdxKey->default_rc = 0;
+    rc = btreeKeyCompareOfCursor(pIdxKey, 0, pCur, &resCmp);
+    pIdxKey->default_rc = default_rc_bak;
+    if( rc ) return rc;
+    if( resCmp!=0 ){
+      if( res!=pIdxKey->default_rc ){
+        rc = xAdvance(pCur, 0);
+        if( rc!=SQLITE_OK && rc!=SQLITE_DONE ) return rc;
+      }
+    }
+
+    /* Count the number of entries having same key in shared btree. */
+    if( rc==SQLITE_OK ){
+      rc = btreeCursorCountSameKey(pCur, pIdxKey, xAdvance, &count);
+      if( rc ) return rc;
+    }
+
+    /* Count the number of entries having same key in deletion btree. */
+    pIdxKey->eqSeen = 0;
+    rc = sqlite3BtreeMovetoUnpacked(pCurDel, pIdxKey, intKey, biasRight, &resDel);
+    if( rc ) return rc;
+    if( pIdxKey->eqSeen ){
+      if( resDel!=pIdxKey->default_rc ){
+        rc = xAdvance(pCurDel, 0);
+        if( rc!=SQLITE_OK && rc!=SQLITE_DONE ) return rc;
+      }
+      if( rc==SQLITE_OK ){
+        rc = btreeCursorCountSameKey(pCurDel, pIdxKey, xAdvance, &countDel);
+        if( rc ) return rc;
+      }
+    }
+    /*
+    ** eqSeen can be set to 1 only when number of entry having search key
+    ** in shared btree is greater than deletion btree.
+    ** If an entry is not found in shared btree and found in deletion btree,
+    ** eqSeen can not be set to 1.
+    */
+    if( count>countDel ) eqSeen = 1;
+
+    rc = sqlite3BtreeMovetoUnpacked(pCur, pIdxKey, intKey, biasRight, &res);
+    if( rc ) return rc;
+  }else if( pIdxKey ) {
+    eqSeen = pIdxKey->eqSeen;
+  }else{
+    eqSeen = 0;
   }
 
   /* Check if the record pointed by pCur is valid. */
@@ -1490,12 +1969,13 @@ int sqlite3BtreeMovetoUnpackedAll(BtCursor *pCur, UnpackedRecord *pIdxKey,
   if( pRootPage->deleteAll ){
     pCur->eState = CURSOR_INVALID;
     res = -1;
+    eqSeen = 0;
   }else{
     /* Check if an entry which pCur points at is deleted. */
     rc = btreeIsDeleted(pCur, &resDel);
     if( rc ) return rc;
 
-    if( resDel==0 ){
+    if( resDel==0 && opcode ){
       rc = sqlite3BtreeNext(pCur, 0);
       if( rc!=SQLITE_OK && rc!=SQLITE_DONE ) return rc;
       /* Move cursor to valid location */
@@ -1518,37 +1998,19 @@ int sqlite3BtreeMovetoUnpackedAll(BtCursor *pCur, UnpackedRecord *pIdxKey,
         if( rc ) return rc;
         res = -1;
       }
+      if( !(pIdxKey && pIdxKey->eqSeen && pIdxKey->default_rc!=0) ) eqSeen = 0;
     }
   }
 
-  /* Search for transaction btree. */
+  /* Reset eqSeen then search for transaction btree. */
+  if( pIdxKey ) pIdxKey->eqSeen = 0;
   rc = sqlite3BtreeMovetoUnpacked(pCurIns, pIdxKey, intKey, biasRight, &resIns);
   if( rc ) return rc;
-
-  /* Check if cursors are pointing to the index-key's record. */
-  if( pIdxKey && pIdxKey->default_rc!=0 ){
-    i64 pos;
-    /* 
-    ** Set default_rc to 0 temporally so that we can know the key is same or not
-    ** by confirming pos is 0.
-    */
-    i8 default_rc = pIdxKey->default_rc;
-    pIdxKey->default_rc = 0;
-    if( btreeCursorIsPointing(pCur) ){
-      rc = btreeKeyCompareOfCursor(pIdxKey, intKey, pCur, &pos);
-      res = (int)pos;
-    }
-    if( rc==SQLITE_OK && btreeCursorIsPointing(pCurIns) ){
-      rc = btreeKeyCompareOfCursor(pIdxKey, intKey, pCurIns, &pos);
-      resIns = (int)pos;
-    }
-    pIdxKey->default_rc = default_rc; /* Restore. */
-    if( rc ) return rc;
-  }
+  if( pIdxKey ) eqSeenIns = pIdxKey->eqSeen;
 
   /* Judge which cursor should be used. */
-  if( resIns==0 || res==0 ){
-    if( resIns==0 ){
+  if( eqSeen||eqSeenIns||resIns==0||res==0 ){
+    if( eqSeenIns||resIns==0 ){
       /* Found in transaction btree. */
       pCurTrans->state = CURSOR_USE_TRANS;
       /* Move another cursor(pCur) to the expected side. */
@@ -1558,6 +2020,7 @@ int sqlite3BtreeMovetoUnpackedAll(BtCursor *pCur, UnpackedRecord *pIdxKey,
         }else if( res>0 && (opcode==OP_SeekLE || opcode==OP_SeekLT) ){
           rc = sqlite3BtreePrevious(pCur, 0);
         }
+      *pRes = resIns;
     }else{
       /* Found in shared btree. */
       pCurTrans->state = CURSOR_USE_SHARED;
@@ -1568,14 +2031,9 @@ int sqlite3BtreeMovetoUnpackedAll(BtCursor *pCur, UnpackedRecord *pIdxKey,
         }else if( resIns>0 && (opcode==OP_SeekLE || opcode==OP_SeekLT) ){
           rc = sqlite3BtreePrevious(pCurIns, 0);
         }
+      *pRes = res;
     }
     if( rc!=SQLITE_OK && rc!=SQLITE_DONE ) return rc;
-    /* Set *pRes. */
-    if( pIdxKey ){
-      *pRes = pIdxKey->default_rc;
-    }else{
-      *pRes = 0;
-    }
   }else{
     /* 
      * Not found in both shared btree and transaction btree.
@@ -1585,6 +2043,9 @@ int sqlite3BtreeMovetoUnpackedAll(BtCursor *pCur, UnpackedRecord *pIdxKey,
       if( btreeCursorIsPointing(pCurIns) ){
         /* Both cursors are valid. Check which cursor is closer to the key. */
         if( opcode==OP_SeekGE || opcode==OP_SeekGT || opcode==OP_SeekLE || opcode==OP_SeekLT ){
+          /* Move pCurDel to correct position (only want to call btreeCursorMovetoKey). */
+          rc = btreeIsDeleted(pCur, &resDel);
+          if( rc ) return rc;
           rc = sqlite3BtreeMovetoSameSide(pCur, opcode, res, resIns, pRes);
           if( rc ) return rc;
         }else{
@@ -1603,7 +2064,142 @@ int sqlite3BtreeMovetoUnpackedAll(BtCursor *pCur, UnpackedRecord *pIdxKey,
     }
   }
 
+  /* Restore pCurDel position in SeekGE to check row deletion at next OP_Next*/
+  if( pCur->btCurTrans.pCurDel->eState==CURSOR_INVALID && opcode==OP_SeekGE) {
+    sqlite3BtreeMovetoUnpacked(pCurDel, pIdxKey, intKey, biasRight, &resDel);
+  }
+
+  if( pIdxKey ) pIdxKey->eqSeen = eqSeen + eqSeenIns;
+
   return SQLITE_OK;
+}
+
+
+/* Create serialized record. Refer OP_MakeRecord. */
+static int vdbeMakeRecord(UnpackedRecord *pIdxKey, int file_format, u8 **ppRec,
+                          int *pSize){
+  u8 *zNewRecord = NULL; /* A buffer to hold the data for the new record */
+  Mem *pRec;             /* Serialized record. */
+  u32 nData = 0;         /* Number of bytes of data space */
+  u32 nHdr = 0;          /* Number of bytes of header space */
+  u32 nByte;             /* Data space required for this record */
+  int nVarint;           /* Number of bytes in a varint */
+  u32 serial_type;       /* Type field */
+  Mem *pData0;           /* First field to be combined into the record */
+  Mem *pLast;            /* Last field of the record */
+  int nField;            /* Number of fields in the record */
+  u32 i;                 /* Space used in zNewRecord[] header */
+  u32 j;                 /* Space used in zNewRecord[] content */
+  u32 len;               /* Length of a field */
+
+  nField = pIdxKey->nField;
+  assert( nField>0 );
+  pData0 = &pIdxKey->aMem[0];
+  pLast = &pData0[nField-1];
+
+  /* Calculate record size. */
+  pRec = pLast;
+  do{
+    assert( memIsValid(pRec) );
+    serial_type = sqlite3VdbeSerialType(pRec, file_format, &len);
+    if( pRec->flags & MEM_Zero ){
+      if( serial_type==0 ){
+        serial_type = 10;
+      }else if( nData ){
+        /* No nothing. */
+      }else{
+        len -= pRec->u.nZero;
+      }
+    }
+    nData += len;
+    nHdr += serial_type<=127 ? 1 : sqlite3VarintLen(serial_type);
+    pRec->uTemp = serial_type;
+    if( pRec==pData0 ) break;
+    pRec--;
+  }while(1);
+
+  if( nHdr<=126 ){
+    nHdr += 1;
+  }else{
+    nVarint = sqlite3VarintLen(nHdr);
+    nHdr += nVarint;
+    if( nVarint<sqlite3VarintLen(nHdr) ) nHdr++;
+  }
+  nByte = nHdr+nData;
+
+  /* Allocate memory for new record. */
+  zNewRecord = (u8*)sqlite3MallocZero(nByte);
+  if( !zNewRecord ) return SQLITE_NOMEM_BKPT;
+
+  /* Create serialized record. */
+  i = putVarint32(zNewRecord, nHdr);
+  j = nHdr;
+  assert( pData0<=pLast );
+  pRec = pData0;
+  do{
+    serial_type = pRec->uTemp;
+    i += putVarint32(&zNewRecord[i], serial_type);            /* serial type */
+    j += sqlite3VdbeSerialPut(&zNewRecord[j], pRec, serial_type); /* content */
+  }while( (++pRec)<=pLast );
+  assert( i==nHdr );
+  assert( j==nByte );
+
+  *ppRec = zNewRecord;
+  *pSize = nByte;
+
+  return SQLITE_OK;
+}
+
+
+
+static int btreeLockIndexKeyQuery(Btree *p, int iTable, UnpackedRecord *pIdxKey,
+                                  int file_format){
+  int rc;
+  BtShared *pBt = p->pBt;
+  BtreeTrans *pBtTrans = &p->btTrans;
+  PsmLockHandle *pPsmHandle = &pBtTrans->psmHandle;
+  u8 *pKey;
+  int nKey;
+
+  assert( pIdxKey );
+
+  /* Create serialized record from unpacked record. */
+  rc = vdbeMakeRecord(pIdxKey, file_format, &pKey, &nKey);
+  if( rc ) return rc;
+
+  /* Check if someone has a lock. */
+  rc = sqlite3rowlockPsmLockRecordQuery(pPsmHandle, iTable, pKey, nKey, p,
+                                        pIdxKey->pKeyInfo->aColl[0]);
+
+  sqlite3_free(pKey);
+
+  return rc;
+}
+
+int sqlite3BtreeNoConflict(BtCursor *pCur, UnpackedRecord *pIdxKey, int file_format,
+                           int *pRes){
+  int rc = SQLITE_OK;
+  Btree *pBtree = pCur->pBtree;
+  int iTable = pCur->pgnoRoot;
+  int res = 0;
+
+  if( transBtreeIsUsed(pBtree) ){
+    rc = btreeLockIndexKeyQuery(pBtree, iTable, pIdxKey, file_format);
+  }
+
+  if( rc==SQLITE_OK || rc==SQLITE_DONE ){
+    rc = sqlite3BtreeMovetoUnpackedAll(pCur, pIdxKey, 0, 0, &res, OP_NoConflict);
+  }else if( rc==SQLITE_LOCKED ){
+    res = 0;
+    rc = SQLITE_OK;
+  }else{
+    /* Error */
+    return rc;
+  }
+
+  *pRes = res;
+
+  return rc;
 }
 
 /* Rollback of transaction btree. */
@@ -1615,6 +2211,7 @@ static void sqlite3TransBtreeRollback(Btree *p, int tripCode, int writeOnly){
     transRootPagesFinish(&pBtTrans->rootPages);
     sqlite3rowlockIpcUnlockRecordProc(&pBtTrans->ipcHandle, NULL);
     sqlite3rowlockIpcUnlockTablesProc(&pBtTrans->ipcHandle, NULL);
+    sqlite3rowlockPsmUnlockRecordProc(&pBtTrans->psmHandle, (u64)p, NULL);
     sqlite3rowlockIpcCachedRowidReset(&pBtTrans->ipcHandle, NULL);
   }
 }
@@ -1641,7 +2238,7 @@ int sqlite3BtreeUpdateMetaWithTransOpen(Btree *p, int idx, u32 iMeta){
 }
 
 #ifndef SQLITE_OMIT_BTREECOUNT
-int sqlite3BtreeCountAll(BtCursor *pCur, i64 *pnEntry){
+int sqlite3BtreeCountAll(sqlite3 *db, BtCursor *pCur, i64 *pnEntry){
   int rc = SQLITE_OK;
   BtCursorTrans *pCurTrans = &pCur->btCurTrans;
   TransRootPage *pRootPage;
@@ -1650,11 +2247,11 @@ int sqlite3BtreeCountAll(BtCursor *pCur, i64 *pnEntry){
   i64 nEntryDel;
 
   if( !transBtreeCursorIsUsed(pCur) ){
-    return sqlite3BtreeCountOriginal(pCur, pnEntry);
+    return sqlite3BtreeCountOriginal(db, pCur, pnEntry);
   }
 
   /* Get inserted record count in a transaction. */
-  rc = sqlite3BtreeCountOriginal(pCurTrans->pCurIns, &nEntryIns);
+  rc = sqlite3BtreeCountOriginal(db, pCurTrans->pCurIns, &nEntryIns);
   if( rc ) return rc;
 
   pRootPage = (TransRootPage*)sqlite3HashI64Find(&pCur->pBtree->btTrans.rootPages, pCur->pgnoRoot);
@@ -1665,10 +2262,10 @@ int sqlite3BtreeCountAll(BtCursor *pCur, i64 *pnEntry){
     *pnEntry = nEntryIns;
   }else{
     /* Get record count in shared btree. */
-    rc = sqlite3BtreeCountOriginal(pCur, &nEntry);
+    rc = sqlite3BtreeCountOriginal(db, pCur, &nEntry);
     if( rc ) return rc;
     /* Get deleted record count in a transaction. */
-    rc = sqlite3BtreeCountOriginal(pCurTrans->pCurDel, &nEntryDel);
+    rc = sqlite3BtreeCountOriginal(db, pCurTrans->pCurDel, &nEntryDel);
     if( rc ) return rc;
     *pnEntry = nEntry + nEntryIns - nEntryDel;
   }
@@ -1759,33 +2356,30 @@ int rowlockBtreeCacheReset(Btree *p){
   return SQLITE_OK;
 }
 
-/* Open write transaction and set database version. */
-int sqlite3BtreeSetVersionWithTransOpen(Btree *pBtree, int iVersion){
-  int rc = SQLITE_OK;
-
-  /* Begin write transaction for shared btree. */
-  if( !sqlite3BtreeIsInTransOriginal(pBtree) ){
-    rc = sqlite3BtreeBeginTransOriginal(pBtree, 2, 0);
-    if( rc ) return rc;
-  }
-
-  return sqlite3BtreeSetVersionOriginal(pBtree, iVersion);
-}
-
 /* Call sqlite3BtreePayloadFetch() for using cursor. */
 const void *sqlite3BtreePayloadFetchAll(BtCursor *pCur, u32 *pAmt){
-  BtCursorTrans *pCurTrans = &pCur->btCurTrans;
-  if( cursorTransIsUsed(pCurTrans) ){
+  if( cursorTransIsUsed(pCur) ){
+    BtCursorTrans *pCurTrans = &pCur->btCurTrans;
     return sqlite3BtreePayloadFetchOriginal(pCurTrans->pCurIns, pAmt);
   }else{
     return sqlite3BtreePayloadFetchOriginal(pCur, pAmt);
   }
 }
 
+/* Call sqlite3VdbeMemFromBtree() for using cursor. */
+int sqlite3VdbeMemFromBtreeAll(BtCursor *pCur, u32 offset, u32 amt, Mem *pMem){
+  if( cursorTransIsUsed(pCur) ){
+    BtCursorTrans *pCurTrans = &pCur->btCurTrans;
+    return sqlite3VdbeMemFromBtreeOriginal(pCurTrans->pCurIns, offset, amt, pMem);
+  }else{
+    return sqlite3VdbeMemFromBtreeOriginal(pCur, offset, amt, pMem);
+  }
+}
+
 /* Call sqlite3BtreePayload() for using cursor. */
 int sqlite3BtreePayloadAll(BtCursor *pCur, u32 offset, u32 amt, void *pBuf){
-  BtCursorTrans *pCurTrans = &pCur->btCurTrans;
-  if( cursorTransIsUsed(pCurTrans) ){
+  if( cursorTransIsUsed(pCur) ){
+    BtCursorTrans *pCurTrans = &pCur->btCurTrans;
     return sqlite3BtreePayloadOriginal(pCurTrans->pCurIns, offset, amt, pBuf);
   }else{
     return sqlite3BtreePayloadOriginal(pCur, offset, amt, pBuf);
@@ -1794,8 +2388,8 @@ int sqlite3BtreePayloadAll(BtCursor *pCur, u32 offset, u32 amt, void *pBuf){
 
 /* Call sqlite3BtreePayloadSize() for using cursor. */
 u32 sqlite3BtreePayloadSizeAll(BtCursor *pCur){
-  BtCursorTrans *pCurTrans = &pCur->btCurTrans;
-  if( cursorTransIsUsed(pCurTrans) ){
+  if( cursorTransIsUsed(pCur) ){
+    BtCursorTrans *pCurTrans = &pCur->btCurTrans;
     return sqlite3BtreePayloadSizeOriginal(pCurTrans->pCurIns);
   }else{
     return sqlite3BtreePayloadSizeOriginal(pCur);
@@ -1804,8 +2398,8 @@ u32 sqlite3BtreePayloadSizeAll(BtCursor *pCur){
 
 /* Call sqlite3BtreeIntegerKey() for using cursor. */
 i64 sqlite3BtreeIntegerKeyAll(BtCursor *pCur){
-  BtCursorTrans *pCurTrans = &pCur->btCurTrans;
-  if( cursorTransIsUsed(pCurTrans) ){
+  if( cursorTransIsUsed(pCur) ){
+    BtCursorTrans *pCurTrans = &pCur->btCurTrans;
     return sqlite3BtreeIntegerKeyOriginal(pCurTrans->pCurIns);
   }else{
     return sqlite3BtreeIntegerKeyOriginal(pCur);
@@ -1814,8 +2408,8 @@ i64 sqlite3BtreeIntegerKeyAll(BtCursor *pCur){
 
 /* Call sqlite3BtreeCursorRestore() for using cursor. */
 int sqlite3BtreeCursorRestoreAll(BtCursor *pCur, int *pDifferentRow){
-  BtCursorTrans *pCurTrans = &pCur->btCurTrans;
-  if( cursorTransIsUsed(pCurTrans) ){
+  if( cursorTransIsUsed(pCur) ){
+    BtCursorTrans *pCurTrans = &pCur->btCurTrans;
     return sqlite3BtreeCursorRestoreOriginal(pCurTrans->pCurIns, pDifferentRow);
   }else{
     return sqlite3BtreeCursorRestoreOriginal(pCur, pDifferentRow);
@@ -1824,8 +2418,8 @@ int sqlite3BtreeCursorRestoreAll(BtCursor *pCur, int *pDifferentRow){
 
 /* Call sqlite3BtreeCursorHasMoved() for using cursor. */
 int sqlite3BtreeCursorHasMovedAll(BtCursor *pCur){
-  BtCursorTrans *pCurTrans = &pCur->btCurTrans;
-  if( cursorTransIsUsed(pCurTrans) ){
+  if( cursorTransIsUsed(pCur) ){
+    BtCursorTrans *pCurTrans = &pCur->btCurTrans;
     return sqlite3BtreeCursorHasMovedOriginal(pCurTrans->pCurIns);
   }else{
     return sqlite3BtreeCursorHasMovedOriginal(pCur);
@@ -1835,8 +2429,8 @@ int sqlite3BtreeCursorHasMovedAll(BtCursor *pCur){
 #ifndef NDEBUG
 /* Call sqlite3BtreeCursorIsValid() for using cursor. */
 int sqlite3BtreeCursorIsValidAll(BtCursor *pCur){
-  BtCursorTrans *pCurTrans = &pCur->btCurTrans;
-  if( cursorTransIsUsed(pCurTrans) ){
+  if( cursorTransIsUsed(pCur) ){
+    BtCursorTrans *pCurTrans = &pCur->btCurTrans;
     return sqlite3BtreeCursorIsValidOriginal(pCurTrans->pCurIns);
   }else{
     return sqlite3BtreeCursorIsValidOriginal(pCur);
@@ -1876,14 +2470,13 @@ void sqlite3BtreeCachedRowidSet(BtCursor *pCur, i64 iRowid){
 /*
 ** Return the cached rowid for the given cursor.  A negative or zero
 ** return value indicates that the rowid cache is invalid and should be
-** ignored.  If the rowid cache has never before been set, then a
-** zero is returned.
+** ignored.  If the transaction btree is not used, then a zero is returned.
 */
 i64 sqlite3BtreeCachedRowidGet(BtCursor *pCur){
   if( transBtreeIsUsed(pCur->pBtree) ){
     return sqlite3rowlockIpcCachedRowidGet(&pCur->pBtree->btTrans.ipcHandle, pCur->pgnoRoot);
   }else{
-    return pCur->cachedRowid;
+    return 0;
   }
 }
 
@@ -1938,16 +2531,16 @@ int sqlite3BtreeBeginTransAll(Btree *p, int wrflag, int *pSchemaVersion){
   int wrflagNew = wrflag;
 
   if( !p->db->init.busy && transBtreeIsUsed(p) ){
-    u8 eLock = sqlite3rowlockIpcLockTableQuery(&p->btTrans.ipcHandle, MASTER_ROOT);
+    u8 eLock = sqlite3rowlockIpcLockTableQuery(&p->btTrans.ipcHandle, SCHEMA_ROOT);
     if( eLock==NOT_LOCKED ){
-      rc = sqlite3BtreeLockTable(p, MASTER_ROOT, 0);
+      rc = sqlite3BtreeLockTable(p, SCHEMA_ROOT, 0);
       if( rc ) return rc;
     }
 
     rc = rowlockBtreeCacheReset(p);
 
     if( eLock==NOT_LOCKED ){
-      sqlite3rowlockIpcUnlockTable(&p->btTrans.ipcHandle, MASTER_ROOT);
+      sqlite3rowlockIpcUnlockTable(&p->btTrans.ipcHandle, SCHEMA_ROOT);
     }
 
     if( rc ) return rc;
@@ -1957,9 +2550,27 @@ int sqlite3BtreeBeginTransAll(Btree *p, int wrflag, int *pSchemaVersion){
     if( (p->pBt->btsFlags & BTS_READ_ONLY)!=0 && wrflag ) return SQLITE_READONLY;
     /* If it is not BEGIN EXCLUSIVE, we start a read transaction of shared btree. */
     if( wrflag<=1 ) wrflagNew = 0;
+    /* If it is BEGIN IMMEDIATE, start a write transaction of shared btree. */
+    else if( wrflag==BEGIN_IMMEDIATE_FLAG ){
+      BtreeTrans *btreeTrans = &p->btTrans;
+      wrflagNew = 1;
+      /* Return error if cannot be accquired EXCLUSIVE_LOCK on pager
+      or any record lock/table lock is existed */
+      if( !rowlockPagerCheckLockAvailable(p->pBt->pPager, EXCLUSIVE_LOCK)
+      && sqlite3rowlockIpcCheckTableLockExisted(&btreeTrans->ipcHandle) )
+        return SQLITE_BUSY;
+    }
   }
   rc = sqlite3BtreeBeginTransOriginal(p, wrflagNew, pSchemaVersion);
   if( rc ) return rc;
+
+  /* 
+  ** In the sqlite3BtreeBeginTransOriginal() function, p->pBt->btsFlags maybe changed
+  ** while loading page1. Therefore the program need check p->pBt->btsFlags again.
+  ** If the database reloaded into read-only and wrflag is write flag return SQLITE_READONLY
+  ** because write transactions are not possible on a read-only database.
+  */
+  if( p->sharable && (p->pBt->btsFlags & BTS_READ_ONLY)!=0 && wrflag ) return SQLITE_READONLY;
 
   if( transBtreeIsUsed(p) ){
     rc = sqlite3TransBtreeBeginTrans(p, wrflag);
@@ -2041,7 +2652,7 @@ int hasSharedCacheTableLockAll(Btree *pBtree, Pgno iRoot, int isIndex, int eLock
 #endif
 
 /* Open write transaction and create table. */
-int sqlite3BtreeCreateTableWithTransOpen(Btree *p, int *piTable, int flags){
+int sqlite3BtreeCreateTableWithTransOpen(Btree *p, Pgno *piTable, int flags){
   int rc = SQLITE_OK;
 
   if( !sqlite3BtreeIsInTransOriginal(p) ){
@@ -2072,27 +2683,19 @@ static int transBtreeCommitTableInsert(BtCursor *pCur){
   while( rc==SQLITE_OK ){
     char *tmp = NULL;
     u64 nKey = 0;
+    u32 u32nKey = 0;
     void *pKey = NULL;
-    int nData = 0;
+    u32 nData = 0;
     void *pData = NULL;
-
-    u32 amt = sqlite3BtreePayloadSizeOriginal(pCurIns);
-    BtreePayload x = {0};   /* Payload to be inserted or updated */
+    BtreePayload x = {0};
     int flags;
 
-    tmp = (char*)sqlite3Realloc(buff, amt);
-    if( !tmp ){
-      rc = SQLITE_NOMEM_BKPT;
-      goto commit_table_insert_failed;
-    }
-    buff = tmp;
-
-    rc = sqlite3BtreePayloadOriginal(pCurIns, 0, amt, buff);
+    rc = btreePayloadWithMalloc(pCurIns, &u32nKey, &buff);
     if( rc ) goto commit_table_insert_failed;
 
     if( pCur->pKeyInfo ){
       /* For an index btree. */
-      nKey = amt;
+      nKey = u32nKey;
       pKey = buff;
       nData = 0;
       pData = NULL;
@@ -2100,7 +2703,7 @@ static int transBtreeCommitTableInsert(BtCursor *pCur){
       /* For a table btree. */
       nKey = sqlite3BtreeIntegerKey(pCurIns);
       pKey = NULL;
-      nData = amt;
+      nData = u32nKey;
       pData = buff;
     }
 
@@ -2126,7 +2729,7 @@ static int transBtreeCommitTableInsert(BtCursor *pCur){
     if( rc ) goto commit_table_insert_failed;
 
     rc = sqlite3BtreeNext(pCurIns, 0);
-    if( rc!=SQLITE_OK && rc!=SQLITE_DONE ) return rc;
+    if( rc!=SQLITE_OK && rc!=SQLITE_DONE ) goto commit_table_insert_failed;
   }
   assert( rc==SQLITE_DONE );
 
@@ -2221,13 +2824,14 @@ int sqlite3BtreeIncrVacuumForRowLock(Btree *p){
   BtreeTrans *pBtTrans = &p->btTrans;
 
   assert( p!=NULL );
-  assert( transBtreeIsUsed(p) );
 
-  rc = sqlite3rowlockIpcLockTableAndAddHistory(p, MASTER_ROOT, WRITE_LOCK);
-  if( rc ) return rc;
+  if( transBtreeIsUsed(p) ){
+    rc = sqlite3rowlockIpcLockTableAndAddHistory(p, SCHEMA_ROOT, WRITE_LOCK);
+    if( rc ) return rc;
 
-  rc = sqlite3BtreeBeginTransOriginal(p, 1, 0);
-  if( rc ) return rc;
+    rc = sqlite3BtreeBeginTransOriginal(p, 1, 0);
+    if( rc ) return rc;
+  }
 
   return sqlite3BtreeIncrVacuumOriginal(p);
 }
@@ -2244,10 +2848,11 @@ int sqlite3rowlockExclusiveLockAllTables(Btree *p){
   HashElem *i;
 
   assert( p!=NULL );
-  assert( transBtreeIsUsed(p) );
+
+  if( !transBtreeIsUsed(p) ) return SQLITE_OK;
   
   /* Get EXCLSV_LOCK of sqlite_master. */
-  rc = sqlite3rowlockIpcLockTable(&pBtTrans->ipcHandle, MASTER_ROOT, WRITE_LOCK, MODE_LOCK_COMMIT, &prevLock);
+  rc = sqlite3rowlockIpcLockTable(&pBtTrans->ipcHandle, SCHEMA_ROOT, WRITE_LOCK, MODE_LOCK_COMMIT, &prevLock);
   if( rc ) return rc;
   assert( prevLock==NOT_LOCKED );
   
@@ -2255,7 +2860,7 @@ int sqlite3rowlockExclusiveLockAllTables(Btree *p){
   pSchema = (Schema*)p->pBt->pSchema;
   for(i=sqliteHashFirst(&pSchema->tblHash); i; i=sqliteHashNext(i)){
     Table *pTable = (Table*)sqliteHashData(i);
-    if( pTable->tnum==MASTER_ROOT ) continue;
+    if( pTable->tnum==SCHEMA_ROOT || pTable->tnum==0 ) continue;
     rc = sqlite3rowlockIpcLockTable(&pBtTrans->ipcHandle, pTable->tnum, EXCLSV_LOCK, MODE_LOCK_COMMIT, &prevLock);
     if( rc ) goto exclusive_lock_all_tables_failed;
     assert( prevLock==NOT_LOCKED );
@@ -2267,11 +2872,11 @@ int sqlite3rowlockExclusiveLockAllTables(Btree *p){
 exclusive_lock_all_tables_failed:
   for(i=sqliteHashFirst(&pSchema->tblHash); i && counter<nTables; i=sqliteHashNext(i)){
     Table *pTable = (Table*)sqliteHashData(i);
-    if( pTable->tnum==MASTER_ROOT ) continue;
+    if( pTable->tnum==SCHEMA_ROOT || pTable->tnum==0 ) continue;
     sqlite3rowlockIpcUnlockTable(&pBtTrans->ipcHandle, pTable->tnum);
     counter++;
   }
-  sqlite3rowlockIpcUnlockTable(&pBtTrans->ipcHandle, MASTER_ROOT);
+  sqlite3rowlockIpcUnlockTable(&pBtTrans->ipcHandle, SCHEMA_ROOT);
   return rc;
 }
 
@@ -2330,7 +2935,7 @@ static int exclusiveLockTables(Btree *p){
     elem = sqliteHashI64Next(elem);
   }
   if( counter>0 ){
-    rc = sqlite3rowlockIpcLockTable(&pBtTrans->ipcHandle, MASTER_ROOT, WRITE_LOCK, MODE_LOCK_COMMIT, &prevLockMaster);
+    rc = sqlite3rowlockIpcLockTable(&pBtTrans->ipcHandle, SCHEMA_ROOT, WRITE_LOCK, MODE_LOCK_COMMIT, &prevLockMaster);
     if( rc ){
       sqlite3_free(pCur);
       return rc;
@@ -2345,12 +2950,12 @@ static int exclusiveLockTables(Btree *p){
 
   elem = sqliteHashI64First(pTransRootPages);
   while( elem ){
-    i64 iTable = sqliteHashI64Key(elem);
+    Pgno iTable = sqliteHashI64Key(elem);
     TransRootPage *pRootPage = (TransRootPage*)sqliteHashI64Data(elem);
     struct KeyInfo *pKeyInfo = pRootPage->pKeyInfo;
     assert( iTable==(i64)(int)iTable );
 
-    rc = sqlite3BtreeCursorAll(p, (int)iTable, 0, pKeyInfo, pCur, 1);
+    rc = sqlite3BtreeCursorAll(p, iTable, 0, pKeyInfo, pCur, 1);
     if( rc ) goto exclusive_lock_tables_failed;
 
     /* Check if the table is modified. */
@@ -2388,7 +2993,7 @@ exclusive_lock_tables_failed:
       elem = sqliteHashI64Next(elem);
     }
   }
-  if( counter>0 ) sqlite3rowlockIpcLockTable(&pBtTrans->ipcHandle, MASTER_ROOT, MODE_LOCK_FORCE, prevLockMaster, NULL);
+  if( counter>0 ) sqlite3rowlockIpcLockTable(&pBtTrans->ipcHandle, SCHEMA_ROOT, MODE_LOCK_FORCE, prevLockMaster, NULL);
   sqlite3_free(isModified);
   sqlite3_free(prevLock);
   sqlite3_free(pCur);
@@ -2410,7 +3015,7 @@ int sqlite3TransBtreeCommit(Btree *p){
 
   if( !transBtreeIsUsed(p) || (p->pBt->btsFlags & BTS_READ_ONLY)==1 ) return SQLITE_OK;
 
-  eLock = sqlite3rowlockIpcLockTableQuery(&p->btTrans.ipcHandle, MASTER_ROOT);
+  eLock = sqlite3rowlockIpcLockTableQuery(&p->btTrans.ipcHandle, SCHEMA_ROOT);
   if( eLock==WRITE_LOCK ) isDdl = 1;
 
   /* Get EXCLSV_LOCK for modified tables in order to prevent from the table access by the other process. */
@@ -2460,7 +3065,7 @@ int sqlite3TransBtreeCommit(Btree *p){
     /* Create cursor for the target table. Table lock is required for a write cursor creation. */
     rc = sqlite3BtreeLockTableOriginal(p, (int)iTable, 1);
     if( rc ) goto trans_btree_commit_failed;
-    rc = sqlite3BtreeCursorAll(p, (int)iTable, BTREE_WRCSR, pKeyInfo, pCur, 1);
+    rc = sqlite3BtreeCursorAll(p, iTable, BTREE_WRCSR, pKeyInfo, pCur, 1);
     if( rc ) goto trans_btree_commit_failed;
 
     /* Delete */
@@ -2502,7 +3107,7 @@ void sqlite3SetForceCommit(Vdbe *pVdbe){
     Btree *p = db->aDb[i].pBt;
     u8 eLock;
     if( !p || !transBtreeIsUsed(p) ) continue;
-    eLock = sqlite3rowlockIpcLockTableQuery(&p->btTrans.ipcHandle, MASTER_ROOT);
+    eLock = sqlite3rowlockIpcLockTableQuery(&p->btTrans.ipcHandle, SCHEMA_ROOT);
     if( eLock==WRITE_LOCK ){
       p->db->autoCommit = 1;
       pVdbe->forceCommit = 1;
@@ -2511,185 +3116,204 @@ void sqlite3SetForceCommit(Vdbe *pVdbe){
   }
 }
 
-/*
-** This function is called when sqlite3_blob_open() is successful.
-** We memorize the opened blob handle in the database handle.
-*/
-int rowlockBlobOpened(sqlite3_blob *pBlob){
-  sqlite3 *db;
-  sqlite3_blob **aNew;
-  
-  db = rowlockIncrblobDb(pBlob);
-  aNew = db->aBlob;
-
-  if( db->aBlob==NULL ){
-    aNew = (sqlite3_blob**)sqlite3DbMallocZero(db, sizeof(sqlite3_blob*));
-  }else if( db->nBlob*(int)sizeof(sqlite3_blob*) > sqlite3DbMallocSize(db, db->aBlob) ){
-    aNew = (sqlite3_blob**)sqlite3DbRealloc(db, db->aBlob, db->nBlob*2*sizeof(sqlite3_blob*));
-  }
-  if( aNew==0 ) return SQLITE_NOMEM_BKPT;
-  db->aBlob = aNew;
-
-  db->aBlob[db->nBlob] = pBlob;
-  db->nBlob++;
-
-  return SQLITE_OK;
-}
-
-/*
-** This function is called when sqlite3_blob_close() is successful.
-** We remove the closed blob handle from the database handle.
-*/
-void rowlockBlobClosed(sqlite3 *db, sqlite3_blob *pBlob){
-  int i;
-  sqlite3_blob **aBlob = db->aBlob;
-
-  for(i=0; i<db->nBlob; i++){
-    if( aBlob[i]==pBlob ){
-      aBlob[i] = aBlob[db->nBlob-1];
-      memset(&aBlob[db->nBlob-1], 0, sizeof(sqlite3_blob*));
-      db->nBlob--;
-      break;
-    }
-  }
-}
-
-int sqlite3_blob_open(
-  sqlite3* db,            /* The database connection */
-  const char *zDb,        /* The attached database containing the blob */
-  const char *zTable,     /* The table containing the blob */
-  const char *zColumn,    /* The column containing the blob */
-  sqlite_int64 iRow,      /* The row containing the glob */
-  int wrFlag,             /* True -> read/write access, false -> read-only */
-  sqlite3_blob **ppBlob   /* Handle for accessing the blob returned here */
-){
-  sqlite3_blob *pBlob;
-  int rc;
-  
-  rc = sqlite3_blob_open_original(db, zDb, zTable, zColumn, iRow, wrFlag, &pBlob);
-  if( rc ) return rc;
-  rc = rowlockBlobOpened(pBlob);
-  if( rc ){
-    sqlite3_blob_close_original(pBlob);
-    return rc;
-  }
-
-  *ppBlob = pBlob;
-  return SQLITE_OK;
-}
-
-int sqlite3_blob_close(sqlite3_blob *pBlob){
-  int rc;
-  sqlite3 *db;
-  
-  if( !pBlob ) return SQLITE_OK;
-
-  /* Get db handle before closing blob handle. */
-  db = rowlockIncrblobDb(pBlob);
-  
-  rc = sqlite3_blob_close_original(pBlob);
-  if( rc ) return rc;
-
-  rowlockBlobClosed(db, pBlob);
-
-  return SQLITE_OK;
-}
-
-/* Free memory of pointers about blob handle in database handle. */
-void rowlockBlobClear(sqlite3 *db){
-  sqlite3DbFree(db, db->aBlob);
-  db->aBlob = NULL;
-  db->nBlob = 0;
-}
-
-/*
-** This function closes blob handles for force-commit by DDL.
-** We memorize information in order to reopen blob habdles.
-*/
-int rowlockBlobCloseHandles(sqlite3 *db, BlobHandle **ppBlobHandle){
-  int rc = SQLITE_OK;
-  BlobHandle *pBlobHandle;
-  sqlite3_blob *pBlobClose = NULL;
-  int i;
-
-  if( db->keepBlob || db->nBlob==0 ){
-    *ppBlobHandle = NULL;
+int btreeValidTableKey(BtCursor *pCur, i64 *prev, int isNext) {
+  i64 nKey1 = 0;
+  i64 result = 0;
+  if( pCur->pKeyInfo || !prev ){
+    /* Index case */
     return SQLITE_OK;
   }
 
-  pBlobHandle = (BlobHandle*)sqlite3DbMallocZero(db, db->nBlob * sizeof(BlobHandle));
-  if( !pBlobHandle ) return SQLITE_NOMEM;
-
-  for(i=0; i<db->nBlob; i++){
-    sqlite3_blob *pBlob = db->aBlob[i];
-    if( !rowlockIncrblobVdbe(pBlob) ) continue;
-    /* Sharow copy. */
-    pBlobHandle[i].pBlob = pBlob;
-    pBlobHandle[i].zDb = rowlockIncrblobDbName(pBlob);
-    pBlobHandle[i].pTab = rowlockIncrblobTable(pBlob);
-    pBlobHandle[i].iCol = rowlockIncrblobColumnNumber(pBlob);
-    pBlobHandle[i].iRow = rowlockIncrblobRowNumber(pBlob);
-    pBlobHandle[i].wrflag = rowlockIncrblobFlag(pBlob);
-    /*
-    ** Close blob handle without freeing the original memory space of
-    ** sqlite3_blob structure.
-    */
-    pBlobClose = rowlockIncrblobMalloc(db);
-    if( !pBlobClose ) goto blob_close_handles;
-    rowlockIncrblobCopy(pBlob, pBlobClose);
-    db->keepBlob = 1;
-    rc = sqlite3_blob_close_original(pBlobClose);
-    db->keepBlob = 0;
-    if( rc ) goto blob_close_handles;
-    rowlockIncrblobStmtNull(pBlob);
+  nKey1 = sqlite3BtreeIntegerKeyOriginal(pCur);
+  if( *prev==0 ){
+    *prev = nKey1;
+    return SQLITE_OK;
   }
 
-  *ppBlobHandle = pBlobHandle;
-  return SQLITE_OK;
+  result = nKey1 - *prev;
+  if( (isNext && result>0) ||
+    (!isNext && result<0) ) {
+    return SQLITE_OK;
+  }
 
-blob_close_handles:
-  sqlite3DbFree(db, pBlobClose);
-  sqlite3DbFree(db, pBlobHandle);
+  return SQLITE_CORRUPT_BKPT;
+}
+
+int sqlite3BtreePutDataAll(BtCursor *pCur, u32 offset, u32 amt, void *z) {
+  int rc;
+  BtCursorTrans *pCurTrans = &pCur->btCurTrans;
+  BtreePayload x = { 0 };
+  void* pBuf;
+  if( cursorTransIsUsed(pCur) ){
+    pCurTrans->pCurIns->curFlags |= BTCF_Incrblob; /* temporary fix */
+    return sqlite3BtreePutDataOriginal(pCurTrans->pCurIns, offset, amt, z);
+  } else if( cursorSharedIsUsed(pCurTrans) ){
+    /* The trans cursor must be opened with write flag */
+    if( (pCurTrans->pCurIns->curFlags & BTCF_WriteFlag)==0 ||
+        (pCurTrans->pCurDel->curFlags & BTCF_WriteFlag)==0 ){
+      return SQLITE_READONLY;
+    }
+    /* Need update in both shared and trans. */
+    getCellInfoOriginal(pCur);
+    /* Malloc pBuf for get total payload */
+    pBuf = sqlite3_malloc(pCur->info.nPayload);
+    if( !pBuf ) return SQLITE_NOMEM_BKPT;
+    rc = sqlite3BtreePayloadOriginal(pCur, 0, pCur->info.nPayload, pBuf);
+    if( rc ) goto blob_put_data_fail;
+    x.pKey = NULL;
+    x.nKey = pCur->info.nKey;
+    x.nData = pCur->info.nPayload;
+    x.pData = pBuf;
+    /* Add a 'delete' to pCurDel, and a 'insert' to pCurIns */
+
+    /* Disable invalidate incrblob before inserting */
+    pCur->pBtree->hasIncrblobCur = 0;
+    rc = sqlite3TransBtreeInsert(pCur, &x, 0, 0);
+
+    /* Re-enable invalidate incrblob after inserting */
+    pCur->pBtree->hasIncrblobCur = 1;
+    if( rc ) goto blob_put_data_fail;
+
+    /* At this point, pCur (in shared) already seek to necessary position */
+    assert(pCur->eState != CURSOR_REQUIRESEEK);
+    if ( pCur->eState!=CURSOR_VALID ) {
+      return SQLITE_ABORT;
+    }
+
+    // Save (and release page) other cursor which is point at the same cell
+    VVA_ONLY(rc = ) saveAllCursorsOriginal(pCur->pBt, pCur->pgnoRoot, pCur);
+    assert(rc == SQLITE_OK);
+
+    /* Put data to trans */
+    pCurTrans->pCurIns->curFlags |= BTCF_Incrblob; /* temporary fix */
+    rc = sqlite3BtreePutDataOriginal(pCurTrans->pCurIns, offset, amt, z);
+  }else{
+    return sqlite3BtreePutDataOriginal(pCur, offset, amt, z);
+  }
+blob_put_data_fail:
+  if( pBuf ) sqlite3_free(pBuf);
   return rc;
 }
 
 /*
-** This function opens blob handles for force-commit by DDL.
-** Even if the opening is failed, it tries to open remaining handles.
-** Regardless of the success or failure, memory of pBlobHandle is freed.
+** Mark this cursor as an incremental blob cursor
 */
-void rowlockBlobReopenHandles(sqlite3 *db, BlobHandle *pBlobHandle){
-  int i;
+void sqlite3BtreeIncrblobCursorAll(BtCursor *pCur){
+  BtCursorTrans *pCurTrans;
+  BtCursor *pCurIns;
+  BtCursor *pCurDel;
+  /* Mark incremental blob cursor for bt share */
+  sqlite3BtreeIncrblobCursorOriginal(pCur);
+  /* Mark incremental blob cursor for bt trans */
+  if( !transBtreeCursorIsUsed(pCur) ){
+    return;
+  }
+  pCurTrans = &pCur->btCurTrans;
+  pCurIns = pCurTrans->pCurIns;
+  pCurDel = pCurTrans->pCurDel;
+  sqlite3BtreeIncrblobCursorOriginal(pCurIns);
+  sqlite3BtreeIncrblobCursorOriginal(pCurDel);
+}
 
-  if( !pBlobHandle ) return;
+/*
+ * Move Cursor to valid in both shard and transaction tree
+ */
+static int btreeMovetoAll(BtCursor *pCur, const void *pKey, i64 nKey, int bias, int *pRes) {
+  int rc;                    /* Status code */
+  UnpackedRecord *pIdxKey;   /* Unpacked index key */
 
-  for(i=0; i<db->nBlob; i++){
-    int rc;
-    const char *zDb, *zTable, *zColumn;
-    u16 iCol;
-    sqlite_int64 iRow;
-    int wrflag;
-    sqlite3_blob *pNew;
-
-    if( !pBlobHandle[i].pBlob ) continue;
-    
-    zDb = pBlobHandle[i].zDb;
-    zTable = pBlobHandle[i].pTab->zName;
-    iCol = pBlobHandle[i].iCol;
-    zColumn = pBlobHandle[i].pTab->aCol[iCol].zName;
-    iRow = pBlobHandle[i].iRow;
-    wrflag = pBlobHandle[i].wrflag;
-
-    db->keepBlob = 1;
-    rc = sqlite3_blob_open_original(db, zDb, zTable, zColumn, iRow, wrflag, &pNew);
-    db->keepBlob = 0;
-    if( rc==SQLITE_OK ){
-      rowlockIncrblobCopy(pNew, pBlobHandle[i].pBlob);
-      sqlite3DbFree(db, pNew);
+  if ( pKey ) {
+    KeyInfo *pKeyInfo = pCur->pKeyInfo;
+    assert(nKey == (i64)(int)nKey);
+    pIdxKey = sqlite3VdbeAllocUnpackedRecord(pKeyInfo);
+    if ( pIdxKey==0 ) return SQLITE_NOMEM_BKPT;
+    sqlite3VdbeRecordUnpack(pKeyInfo, (int)nKey, pKey, pIdxKey);
+    if ( pIdxKey->nField==0 || pIdxKey->nField>pKeyInfo->nAllField ) {
+      rc = SQLITE_CORRUPT_BKPT;
+      goto moveto_done;
     }
   }
-
-  sqlite3DbFree(db, pBlobHandle);
+  else {
+    pIdxKey = 0;
+  }
+  rc = sqlite3BtreeMovetoUnpackedAll(pCur, pIdxKey, nKey, bias, pRes, 0);
+moveto_done:
+  if ( pIdxKey ) {
+    sqlite3DbFree(pCur->pKeyInfo->db, pIdxKey);
+  }
+  return rc;
 }
+
+/*
+ * Restore the Cursor and Repoint to correct cursor between share and transaction
+ * Btree incase of blob is updated.
+ */
+static int btreeRestoreCursorPositionAll(BtCursor *pCur) {
+  int rc;
+  int skipNext = 0;
+  /* assert(cursorOwnsBtShared(pCur)); */
+  assert(pCur->eState >= CURSOR_REQUIRESEEK);
+  if ( pCur->eState==CURSOR_FAULT ) {
+    return pCur->skipNext;
+  }
+  pCur->eState = CURSOR_INVALID;
+  if ( sqlite3FaultSim(410) ) {
+    rc = SQLITE_IOERR;
+  }
+  else {
+    rc = btreeMovetoAll(pCur, pCur->pKey, pCur->nKey, 0, &skipNext);
+  }
+  if ( rc==SQLITE_OK ) {
+    sqlite3_free(pCur->pKey);
+    pCur->pKey = 0;
+    assert(pCur->eState==CURSOR_VALID || pCur->eState==CURSOR_INVALID);
+    if ( skipNext ) pCur->skipNext = skipNext;
+    if ( pCur->skipNext && pCur->eState==CURSOR_VALID ) {
+      pCur->eState = CURSOR_SKIPNEXT;
+    }
+  }
+  return rc;
+}
+
+#ifndef SQLITE_OMIT_INCRBLOB
+/* Check invalidate state for both Pcur and PcurIns(Data is in transaction)*/
+static u8 getCursorState(BtCursor *pCur) {
+  BtCursorTrans *pCurTrans = &pCur->btCurTrans;
+  return (cursorTransIsUsed(pCur)) ? pCurTrans->pCurIns->eState : pCur->eState;
+}
+
+/*
+ * Read Blob pay load from cursor
+ * Allocate transaction cursor if READONLY cursor need to access transaction data 
+ */
+int sqlite3BtreePayloadCheckedAll(BtCursor *pCur, u32 offset, u32 amt, void *pBuf) {
+  BtCursorTrans *pCurTrans = &pCur->btCurTrans;
+  u8 curState = getCursorState(pCur);
+  int rc = SQLITE_OK;
+
+  if( curState==CURSOR_VALID ) {
+    /* assert(cursorOwnsBtShared(pCur)); */
+    return sqlite3BtreePayloadAll(pCur, offset, amt, pBuf);
+  } else if( curState==CURSOR_INVALID ) {
+    return SQLITE_ABORT;
+  }
+
+  /* Check if the cursor is READONLY and Transaction btree is in WRITE and
+   * Transaction cursor has not been created
+   * Allocate transaction cursor so that READONLY cursor can read transaction data 
+   */
+  if ( ((pCur->curFlags & BTCF_WriteFlag)==0) &&
+    (sqlite3BtreeIsInTransOriginal(pCur->pBtree->btTrans.pBtree)) &&
+    (pCur->btCurTrans.pCurIns == NULL) ) {  
+    rc = transBtreeCursor(pCur->pBtree, pCur->pgnoRoot, 0, NULL, pCur);
+    if ( rc ) return rc;
+  }
+
+  /* Seek and access payload */
+  /* assert(cursorOwnsBtShared(pCur)); */
+  rc = btreeRestoreCursorPositionAll(pCur);
+  return rc ? rc : sqlite3BtreePayloadAll(pCur, offset, amt, pBuf);
+}
+#endif
 
 #endif /* SQLITE_OMIT_ROWLOCK */

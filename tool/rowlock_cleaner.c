@@ -27,5 +27,6 @@ int main(int argc, char *argv[]){
   dbname = argv[1];
   sqlite3_rowlock_ipc_unlock_record_all(dbname);
   sqlite3_rowlock_ipc_unlock_tables_all(dbname);
+  sqlite3_rowlock_psm_unlock_record_all(dbname);
   return 0;
 }

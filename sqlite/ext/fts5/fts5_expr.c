@@ -309,6 +309,42 @@ void sqlite3Fts5ExprFree(Fts5Expr *p){
   }
 }
 
+int sqlite3Fts5ExprAnd(Fts5Expr **pp1, Fts5Expr *p2){
+  Fts5Parse sParse;
+  memset(&sParse, 0, sizeof(sParse));
+
+  if( *pp1 ){
+    Fts5Expr *p1 = *pp1;
+    int nPhrase = p1->nPhrase + p2->nPhrase;
+
+    p1->pRoot = sqlite3Fts5ParseNode(&sParse, FTS5_AND, p1->pRoot, p2->pRoot,0);
+    p2->pRoot = 0;
+
+    if( sParse.rc==SQLITE_OK ){
+      Fts5ExprPhrase **ap = (Fts5ExprPhrase**)sqlite3_realloc(
+          p1->apExprPhrase, nPhrase * sizeof(Fts5ExprPhrase*)
+      );
+      if( ap==0 ){
+        sParse.rc = SQLITE_NOMEM;
+      }else{
+        int i;
+        memmove(&ap[p2->nPhrase], ap, p1->nPhrase*sizeof(Fts5ExprPhrase*));
+        for(i=0; i<p2->nPhrase; i++){
+          ap[i] = p2->apExprPhrase[i];
+        }
+        p1->nPhrase = nPhrase;
+        p1->apExprPhrase = ap;
+      }
+    }
+    sqlite3_free(p2->apExprPhrase);
+    sqlite3_free(p2);
+  }else{
+    *pp1 = p2;
+  }
+
+  return sParse.rc;
+}
+
 /*
 ** Argument pTerm must be a synonym iterator. Return the current rowid
 ** that it points to.
@@ -2480,10 +2516,12 @@ static void fts5ExprFunction(
   azConfig[1] = "main";
   azConfig[2] = "tbl";
   for(i=3; iArg<nArg; iArg++){
-    azConfig[i++] = (const char*)sqlite3_value_text(apVal[iArg]);
+    const char *z = (const char*)sqlite3_value_text(apVal[iArg]);
+    azConfig[i++] = (z ? z : "");
   }
 
   zExpr = (const char*)sqlite3_value_text(apVal[0]);
+  if( zExpr==0 ) zExpr = "";
 
   rc = sqlite3Fts5ConfigParse(pGlobal, db, nConfig, azConfig, &pConfig, &zErr);
   if( rc==SQLITE_OK ){

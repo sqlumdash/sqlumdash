@@ -11,8 +11,11 @@
 #if SQLITE_OS_UNIX
 
 #include <pthread.h>
+#include <errno.h>
 #include <signal.h>
 #include <sys/mman.h>
+#include <sys/types.h>
+#include <sys/syscall.h>
 #include <fcntl.h>
 #include "rowlock_os.h"
 #include "sqlite3.h"
@@ -41,6 +44,10 @@ int rowlockOsSetSignalAction(int *signals, int nSignal, void *action){
   return EXIT_SUCCESS;
 }
 
+pid_t gettid(void) {
+  return syscall(SYS_gettid);
+}
+
 int rowlockOsMutexOpen(const char *name, MUTEX_HANDLE *pMutex){
   int ret;
   pthread_mutexattr_t mtxattr;
@@ -60,19 +67,37 @@ int rowlockOsMutexOpen(const char *name, MUTEX_HANDLE *pMutex){
     return SQLITE_ERROR;
   }
 
+  /*
+  ** If the owner dies without unlocking the mutex, any future
+  ** attempts to call pthread_mutex_lock() on this mutex will
+  ** succeed and return EOWNERDEAD. Usually after EOWNERDEAD is returned,
+  ** the next owner should call pthread_mutex_consistent(3)
+  ** on the acquired mutex to make it consistent again before using it any further.
+  */
+  ret = pthread_mutexattr_setrobust(&mtxattr, PTHREAD_MUTEX_ROBUST);
+  if( ret!=0 ){
+    pthread_mutexattr_destroy(&mtxattr);
+    return SQLITE_ERROR;
+  }
+
   pthread_mutex_init(&pMutex->handle, &mtxattr);
   pthread_mutexattr_destroy(&mtxattr);
-
+  pMutex->init = 1;
   return SQLITE_OK;
 }
 
 void rowlockOsMutexClose(MUTEX_HANDLE *pMutex){
   pthread_mutex_destroy(&pMutex->handle);
   pMutex->held = 0;
+  pMutex->init = 0;
 }
 
 void rowlockOsMutexEnter(MUTEX_HANDLE *pMutex){
-  pthread_mutex_lock(&pMutex->handle);
+  int ret;
+  ret = pthread_mutex_lock(&pMutex->handle);
+  if( ret==EOWNERDEAD ){
+    pthread_mutex_consistent(&pMutex->handle);
+  }
   pMutex->held = 1;
 }
 
@@ -215,6 +240,7 @@ int rowlockOsMmapOpen(u64 allocSize, const char *name, MMAP_HANDLE *phMap, void 
   phMap->fdMmap = fdMmap;
   phMap->fdMng = fdMng;
   strcpy(phMap->name, name);
+  phMap->size = allocSize;
   *ppMap = pMap;
   return SQLITE_OK;
 
@@ -230,7 +256,7 @@ void rowlockOsMmapClose(MMAP_HANDLE hMap, void *pMap){
   int user;
   char name[MAX_PATH_LEN] = {0};
 
-  munmap(pMap, 0);
+  munmap(pMap, hMap.size);
   close(hMap.fdMmap);
   close(hMap.fdMng);
 

@@ -1,4 +1,4 @@
-# 2012 August 23
+# 2012-08-23
 #
 # The author disclaims copyright to this source code.  In place of
 # a legal notice, here is a blessing:
@@ -17,6 +17,7 @@
 
 set testdir [file dirname $argv0]
 source $testdir/tester.tcl
+set testprefix aggnested
 
 do_test aggnested-1.1 {
   db eval {
@@ -232,6 +233,80 @@ do_test aggnested-3.16 {
      GROUP BY id1;
   }
 } {12 2 34 4}
+
+# 2019-08-31
+# Problem found by dbsqlfuzz
+#
+do_execsql_test aggnested-4.1 {
+  DROP TABLE IF EXISTS aa;
+  DROP TABLE IF EXISTS bb;
+  CREATE TABLE aa(x INT);  INSERT INTO aa(x) VALUES(123);
+  CREATE TABLE bb(y INT);  INSERT INTO bb(y) VALUES(456);
+  SELECT (SELECT sum(x+(SELECT y)) FROM bb) FROM aa;
+} {579}
+do_execsql_test aggnested-4.2 {
+  SELECT (SELECT sum(x+y) FROM bb) FROM aa;
+} {579}
+do_execsql_test aggnested-4.3 {
+  DROP TABLE IF EXISTS tx;
+  DROP TABLE IF EXISTS ty;
+  CREATE TABLE tx(x INT);
+  INSERT INTO tx VALUES(1),(2),(3),(4),(5);
+  CREATE TABLE ty(y INT);
+  INSERT INTO ty VALUES(91),(92),(93);
+  SELECT min((SELECT count(y) FROM ty)) FROM tx;
+} {3}
+do_execsql_test aggnested-4.4 {
+  SELECT max((SELECT a FROM (SELECT count(*) AS a FROM ty) AS s)) FROM tx;
+} {3}
+
+#--------------------------------------------------------------------------
+#
+reset_db
+do_execsql_test 5.0 {
+  CREATE TABLE x1(a, b);
+  INSERT INTO x1 VALUES(1, 2);
+  CREATE TABLE x2(x);
+  INSERT INTO x2 VALUES(NULL), (NULL), (NULL);
+}
+
+# At one point, aggregate "total()" in the query below was being processed
+# as part of the outer SELECT, not as part of the sub-select with no FROM
+# clause.
+do_execsql_test 5.1 {
+  SELECT ( SELECT total( (SELECT b FROM x1) ) ) FROM x2;
+} {2.0 2.0 2.0}
+
+do_execsql_test 5.2 {
+  SELECT ( SELECT total( (SELECT 2 FROM x1) ) ) FROM x2;
+} {2.0 2.0 2.0}
+
+do_execsql_test 5.3 {
+  CREATE TABLE t1(a);
+  CREATE TABLE t2(b);
+}
+
+do_execsql_test 5.4 {
+  SELECT(
+    SELECT max(b) LIMIT (
+      SELECT total( (SELECT a FROM t1) )
+    )
+  )
+  FROM t2;
+} {{}}
+
+do_execsql_test 5.5 {
+  CREATE TABLE a(b);
+  WITH c AS(SELECT a)
+    SELECT(SELECT(SELECT group_concat(b, b)
+          LIMIT(SELECT 0.100000 *
+            AVG(DISTINCT(SELECT 0 FROM a ORDER BY b, b, b))))
+        FROM a GROUP BY b,
+        b, b) FROM a EXCEPT SELECT b FROM a ORDER BY b,
+    b, b;
+}
+
+
  
 
 finish_test

@@ -426,7 +426,7 @@ do_test where9-4.5 {
        AND (c=31031 OR d IS NULL)
      ORDER BY +a
   }
-} {1 {no query solution}}
+} {0 {92 93 97}}
 do_test where9-4.6 {
   count_steps {
     SELECT a FROM t1 NOT INDEXED
@@ -442,7 +442,7 @@ do_test where9-4.7 {
        AND (c=31031 OR d IS NULL)
      ORDER BY +a
   }
-} {1 {no query solution}}
+} {0 {92 93 97}}
 do_test where9-4.8 {
   catchsql {
     SELECT a FROM t1 INDEXED BY t1d
@@ -450,7 +450,7 @@ do_test where9-4.8 {
        AND (c=31031 OR d IS NULL)
      ORDER BY +a
   }
-} {1 {no query solution}}
+} {0 {92 93 97}}
 
 # The (c=31031 OR d IS NULL) clause is preferred over b>1000 because
 # the former is an equality test which is expected to return fewer rows.
@@ -776,7 +776,7 @@ do_test where9-6.8.1 {
         OR (b NOT NULL AND c IS NULL AND d NOT NULL)
         OR (b NOT NULL AND c NOT NULL AND d IS NULL)
   }
-} {1 {no query solution}}
+} {0 {}}
 do_test where9-6.8.2 {
   catchsql {
     UPDATE t1 INDEXED BY t1b SET a=a+100
@@ -784,10 +784,10 @@ do_test where9-6.8.2 {
         OR (b NOT NULL AND c IS NULL AND d NOT NULL)
         OR (b NOT NULL AND c NOT NULL AND d IS NULL)
   }
-} {1 {no query solution}}
+} {0 {}}
 
 set solution_possible 0
-ifcapable stat4||stat3 {
+ifcapable stat4 {
   if {[permutation] != "no_optimization"} { set solution_possible 1 }
 }
 if $solution_possible {
@@ -818,7 +818,7 @@ if $solution_possible {
           OR (b NOT NULL AND c IS NULL AND d NOT NULL)
           OR (b NOT NULL AND c NOT NULL AND d IS NULL)
     }
-  } {1 {no query solution}}
+  } {0 {}}
   do_test where9-6.8.4 {
     catchsql {
       DELETE FROM t1 INDEXED BY t1b
@@ -826,7 +826,7 @@ if $solution_possible {
           OR (b NOT NULL AND c IS NULL AND d NOT NULL)
           OR (b NOT NULL AND c NOT NULL AND d IS NULL)
     }
-  } {1 {no query solution}}
+  } {0 {}}
 }
 ############################################################################
 # Test cases where terms inside an OR series are combined with AND terms
@@ -859,11 +859,6 @@ do_test where9-7.0 {
     CREATE TABLE t6(a, b, c, e, d, f, g, x, y);
     INSERT INTO t6 SELECT * FROM t5;
     ANALYZE t5;
-  }
-  ifcapable stat3 {
-    sqlite3 db2 test.db
-    db2 eval { DROP TABLE IF EXISTS sqlite_stat3 }
-    db2 close
   }
 } {}
 do_test where9-7.1.1 {

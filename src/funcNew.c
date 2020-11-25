@@ -262,7 +262,7 @@ void initcapFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
   if (zOut == NULL) return;
 
   memcpy(zOut, z, len);
-  zOut[0] = (char)toupper(z[0]);
+  zOut[0] = (char)sqlite3Toupper(z[0]);
 
   sqlite3_result_text(context, zOut, -1, sqlite3_free);
 }

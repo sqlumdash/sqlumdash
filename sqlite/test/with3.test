@@ -30,7 +30,15 @@ do_catchsql_test 1.0 {
     SELECT 5 FROM t0 UNION SELECT 8 FROM m
   )
   SELECT * FROM i;
-} {1 {no such table: m}}
+} {1 {no such table: t0}}
+
+# 2019-11-09 dbfuzzcheck find
+do_catchsql_test 1.1 {
+  CREATE VIEW v1(x,y) AS
+    WITH t1(a,b) AS (VALUES(1,2))
+    SELECT * FROM nosuchtable JOIN t1;
+  SELECT * FROM v1;
+} {1 {no such table: main.nosuchtable}}
 
 # Additional test cases that came out of the work to
 # fix for Kostya's problem.
@@ -129,5 +137,65 @@ do_eqp_test 3.2.2 {
   |--SEARCH TABLE w2 USING INTEGER PRIMARY KEY (rowid=?)
   `--SEARCH TABLE w1 USING INTEGER PRIMARY KEY (rowid=?)
 }
+
+do_execsql_test 4.0 {
+  WITH t5(t5col1) AS (
+    SELECT (
+      WITH t3(t3col1) AS (
+        WITH t2 AS (
+          WITH t1 AS (SELECT 1 AS c1 GROUP BY 1) 
+          SELECT a.c1 FROM t1 AS a, t1 AS b
+          WHERE anoncol1 = 1
+        )
+        SELECT (SELECT 1 FROM t2) FROM t2
+      ) 
+      SELECT t3col1 FROM t3 WHERE t3col1
+    ) FROM (SELECT 1 AS anoncol1)
+  )
+  SELECT t5col1, t5col1 FROM t5
+} {1 1}
+do_execsql_test 4.1 {
+  SELECT EXISTS (
+    WITH RECURSIVE Table0 AS (
+      WITH RECURSIVE Table0(Col0) AS (SELECT ALL 1  ) 
+      SELECT ALL (
+        WITH RECURSIVE Table0 AS (
+          WITH RECURSIVE Table0 AS (
+            WITH RECURSIVE Table0 AS (SELECT DISTINCT 1  GROUP BY 1  ) 
+            SELECT DISTINCT * FROM Table0 NATURAL INNER JOIN Table0
+            WHERE Col0 = 1  
+          )
+          SELECT ALL (SELECT DISTINCT * FROM Table0) FROM Table0 WHERE Col0 = 1
+        ) 
+        SELECT ALL * FROM Table0  NATURAL INNER JOIN  Table0      
+      ) FROM Table0 ) 
+      SELECT DISTINCT * FROM Table0  NATURAL INNER JOIN  Table0      
+    ); 
+} {1}
+
+# 2020-01-18 chrome ticket 1043236
+# Correct handling of the sequence:
+#    OP_OpenEphem
+#    OP_OpenDup
+#    Op_OpenEphem
+#    OP_OpenDup
+#
+do_execsql_test 4.2 {
+  SELECT (
+    WITH t1(a) AS (VALUES(1))
+    SELECT (
+      WITH t2(b) AS (
+        WITH t3(c) AS (
+          WITH t4(d) AS (VALUES('elvis'))
+          SELECT t4a.d FROM t4 AS t4a JOIN t4 AS t4b LEFT JOIN t4 AS t4c
+        )
+        SELECT c FROM t3 WHERE a = 1
+      )
+      SELECT t2a.b FROM t2 AS t2a JOIN t2 AS t2x
+    )
+    FROM t1 GROUP BY 1
+  )
+  GROUP BY 1;
+} {elvis}
 
 finish_test

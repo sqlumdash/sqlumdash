@@ -11,27 +11,41 @@ Row lock information is shared with processes. If a process finished unexpectedl
 
 ## How to build SQLumDash
 
-1. Generate SQLumDash source code.
+I. Generate SQLumDash source code.
 
-1-1. Apply patch
+1. Apply patch
 ```sh
   $ patch -p1 -d sqlite < patch/sqlumdash.patch
 ```
 
-1-2. Copy new files
+2. Copy new files
 ```sh
   $ cp src/* sqlite/src/
   $ cp -R tool/* sqlite/tool/
   $ cp test/* sqlite/test/
 ```
 
-2. Build SQLumDash binary
+II. Build **psmalloc** module
 
-2-1. Execute VisualStudio Command Prompt
+1. Goto `sqlite` directory
 
-2-2. Goto sqlite directory
+2. Checkout the psmalloc repository
+```sh
+  $ git checkout https://github.com/sqlumdash/psmalloc.git
+```
+3. Goto `psmalloc` directory
 
-2-3. Use makefile
+4. Build psmalloc library (see [README file](https://github.com/sqlumdash/psmalloc#how-to-build-psmalloc))
+
+5. Copy psmalloc library to psmalloc directory (see [README file](https://github.com/sqlumdash/psmalloc#how-to-build-psmalloc))
+
+III. Build SQLumDash binary
+
+1. Execute VisualStudio Command Prompt
+
+2. Goto `sqlite` directory
+
+3. Use Makefile
 ```sh
   $ nmake /F Makefile.msc
 ```

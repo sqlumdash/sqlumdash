@@ -1013,13 +1013,18 @@ sqlite3 db test.db
 # EVIDENCE-OF: R-22868-25880 The LIKE operator can be made case
 # sensitive using the case_sensitive_like pragma.
 #
-do_execsql_test e_expr-16.1.1 { SELECT 'abcxyz' LIKE 'ABC%' } 1
-do_execsql_test e_expr-16.1.2 { PRAGMA case_sensitive_like = 1 } {}
-do_execsql_test e_expr-16.1.3 { SELECT 'abcxyz' LIKE 'ABC%' } 0
-do_execsql_test e_expr-16.1.4 { SELECT 'ABCxyz' LIKE 'ABC%' } 1
-do_execsql_test e_expr-16.1.5 { PRAGMA case_sensitive_like = 0 } {}
-do_execsql_test e_expr-16.1.6 { SELECT 'abcxyz' LIKE 'ABC%' } 1
-do_execsql_test e_expr-16.1.7 { SELECT 'ABCxyz' LIKE 'ABC%' } 1
+do_execsql_test e_expr-16.1.1  { SELECT 'abcxyz' LIKE 'ABC%' } 1
+do_execsql_test e_expr-16.1.1b { SELECT 'abc%xyz' LIKE 'ABC\%x%' ESCAPE '\' } 1
+do_execsql_test e_expr-16.1.2  { PRAGMA case_sensitive_like = 1 } {}
+do_execsql_test e_expr-16.1.3  { SELECT 'abcxyz' LIKE 'ABC%' } 0
+do_execsql_test e_expr-16.1.3b { SELECT 'abc%xyz' LIKE 'ABC\%X%' ESCAPE '\' } 0
+do_execsql_test e_expr-16.1.4  { SELECT 'ABCxyz' LIKE 'ABC%' } 1
+do_execsql_test e_expr-16.1.4b { SELECT 'ABC%xyz' LIKE 'ABC\%x%' ESCAPE '\' } 1
+do_execsql_test e_expr-16.1.5  { PRAGMA case_sensitive_like = 0 } {}
+do_execsql_test e_expr-16.1.6  { SELECT 'abcxyz' LIKE 'ABC%' } 1
+do_execsql_test e_expr-16.1.6b { SELECT 'abc%xyz' LIKE 'ABC\%X%' ESCAPE '\' } 1
+do_execsql_test e_expr-16.1.7  { SELECT 'ABCxyz' LIKE 'ABC%' } 1
+do_execsql_test e_expr-16.1.7b { SELECT 'ABC%xyz' LIKE 'ABC\%X%' ESCAPE '\' } 1
 
 # EVIDENCE-OF: R-52087-12043 The GLOB operator is similar to LIKE but
 # uses the Unix file globbing syntax for its wildcards.
@@ -1134,7 +1139,7 @@ sqlite3 db test.db
 #-------------------------------------------------------------------------
 # Test cases for the testable statements related to the CASE expression.
 #
-# EVIDENCE-OF: R-15199-61389 There are two basic forms of the CASE
+# EVIDENCE-OF: R-57495-24088 There are two fundamental forms of the CASE
 # expression: those with a base expression and those without.
 #
 do_execsql_test e_expr-20.1 {
@@ -1230,11 +1235,11 @@ db nullvalue {}
 # evaluating WHEN terms.
 #
 do_execsql_test e_expr-21.4.1 {
-  SELECT CASE WHEN NULL THEN 'A' WHEN 1 THEN 'B' END
-} {B}
+  SELECT CASE WHEN NULL THEN 'A' WHEN 1 THEN 'B' END, iif(NULL,8,99);
+} {B 99}
 do_execsql_test e_expr-21.4.2 {
-  SELECT CASE WHEN 0 THEN 'A' WHEN NULL THEN 'B' ELSE 'C' END
-} {C}
+  SELECT CASE WHEN 0 THEN 'A' WHEN NULL THEN 'B' ELSE 'C' END, iif(0,8,99);
+} {C 99}
 
 # EVIDENCE-OF: R-38620-19499 In a CASE with a base expression, the base
 # expression is evaluated just once and the result is compared against
@@ -1639,16 +1644,47 @@ do_expr_test e_expr-31.2.4 {
 } integer 9223372036854775807
 
 
-# EVIDENCE-OF: R-09295-61337 Casting a TEXT or BLOB value into NUMERIC
-# first does a forced conversion into REAL but then further converts the
-# result into INTEGER if and only if the conversion from REAL to INTEGER
-# is lossless and reversible.
+# EVIDENCE-OF: R-55084-10555 Casting a TEXT or BLOB value into NUMERIC
+# yields either an INTEGER or a REAL result.
+#
+# EVIDENCE-OF: R-48945-04866 If the input text looks like an integer
+# (there is no decimal point nor exponent) and the value is small enough
+# to fit in a 64-bit signed integer, then the result will be INTEGER.
+#
+# EVIDENCE-OF: R-47045-23194 Input text that looks like floating point
+# (there is a decimal point and/or an exponent) and the text describes a
+# value that can be losslessly converted back and forth between IEEE 754
+# 64-bit float and a 51-bit signed integer, then the result is INTEGER.
 #
 do_expr_test e_expr-32.1.1 { CAST('45'   AS NUMERIC)  } integer 45
 do_expr_test e_expr-32.1.2 { CAST('45.0' AS NUMERIC)  } integer 45
 do_expr_test e_expr-32.1.3 { CAST('45.2' AS NUMERIC)  } real 45.2
 do_expr_test e_expr-32.1.4 { CAST('11abc' AS NUMERIC) } integer 11
 do_expr_test e_expr-32.1.5 { CAST('11.1abc' AS NUMERIC) } real 11.1
+do_expr_test e_expr-32.1.6 {CAST( '9.223372036e14' AS NUMERIC)} integer  922337203600000
+do_expr_test e_expr-32.1.7 {CAST('-9.223372036e14' AS NUMERIC)} integer -922337203600000
+do_test e_expr-32.1.8 {
+  set expr {CAST( '9.223372036e15' AS NUMERIC)}
+  db eval "SELECT typeof($expr) AS type, printf('%.5e',$expr) AS value"  break;
+  list $type $value
+} {real 9.22337e+15}
+do_test e_expr-32.1.9 {
+  set expr {CAST('-9.223372036e15' AS NUMERIC)}
+  db eval "SELECT typeof($expr) AS type, printf('%.5e',$expr) AS value"  break;
+  list $type $value
+} {real -9.22337e+15}
+
+# EVIDENCE-OF: R-50300-26941 Any text input that describes a value
+# outside the range of a 64-bit signed integer yields a REAL result.
+#
+do_expr_test e_expr-32.1.20 { CAST('9223372036854775807' AS numeric) } \
+   integer 9223372036854775807
+do_expr_test e_expr-32.1.21 { CAST('9223372036854775808' AS numeric) } \
+   real 9.22337203685478e+18
+do_expr_test e_expr-32.1.22 { CAST('-9223372036854775808' AS numeric) } \
+   integer -9223372036854775808
+do_expr_test e_expr-32.1.23 { CAST('-9223372036854775809' AS numeric) } \
+   real -9.22337203685478e+18
 
 # EVIDENCE-OF: R-30347-18702 Casting a REAL or INTEGER value to NUMERIC
 # is a no-op, even if a real value could be losslessly converted to an
@@ -1696,14 +1732,14 @@ do_execsql_test e_expr-32.2.8 {
  integer 9000000000000000001 \
  integer 9000000000000000001 \
  integer 9000000000000000001 \
- integer 9000000000000000001 \
+ real 9.0e+18 \
  integer 9223372036854775807 \
  integer 9223372036854775807 \
  integer 9223372036854775807 \
  real 9.22337203685478e+18 \
  real 9.22337203685478e+18 \
- integer 9223372036854775807 \
- integer 9223372036854775807 \
+ real 9.22337203685478e+18 \
+ real 9.22337203685478e+18 \
  integer -5 \
  integer -5 \
 ]
@@ -1880,9 +1916,6 @@ foreach {tn sql} {
 # EVIDENCE-OF: R-18318-14995 The value of a subquery expression is the
 # first row of the result from the enclosed SELECT statement.
 #
-# EVIDENCE-OF: R-15900-52156 In other words, an implied "LIMIT 1" is
-# added to the subquery, overriding an explicitly coded LIMIT.
-#
 do_execsql_test e_expr-36.3.1 {
   CREATE TABLE t4(x, y);
   INSERT INTO t4 VALUES(1, 'one');
@@ -1919,39 +1952,39 @@ foreach {tn expr} {
 # 'english' and '0' are all considered to be false.
 #
 do_execsql_test e_expr-37.1 {
-   SELECT CASE WHEN NULL THEN 'true' ELSE 'false' END;
-} {false}
+   SELECT CASE WHEN NULL THEN 'true' ELSE 'false' END, iif(NULL,'true','false');
+} {false false}
 do_execsql_test e_expr-37.2 {
-   SELECT CASE WHEN 0.0 THEN 'true' ELSE 'false' END;
-} {false}
+   SELECT CASE WHEN 0.0 THEN 'true' ELSE 'false' END, iif(0.0,'true','false');
+} {false false}
 do_execsql_test e_expr-37.3 {
-   SELECT CASE WHEN 0 THEN 'true' ELSE 'false' END;
-} {false}
+   SELECT CASE WHEN 0 THEN 'true' ELSE 'false' END, iif(0,'true','false');
+} {false false}
 do_execsql_test e_expr-37.4 {
-   SELECT CASE WHEN 'engligh' THEN 'true' ELSE 'false' END;
-} {false}
+   SELECT CASE WHEN 'engligh' THEN 'true' ELSE 'false' END, iif('engligh','true','false');
+} {false false}
 do_execsql_test e_expr-37.5 {
-   SELECT CASE WHEN '0' THEN 'true' ELSE 'false' END;
-} {false}
+   SELECT CASE WHEN '0' THEN 'true' ELSE 'false' END, iif('0','true','false');
+} {false false}
 
 # EVIDENCE-OF: R-55532-10108 Values 1, 1.0, 0.1, -0.1 and '1english' are
 # considered to be true.
 #
 do_execsql_test e_expr-37.6 {
-   SELECT CASE WHEN 1 THEN 'true' ELSE 'false' END;
-} {true}
+   SELECT CASE WHEN 1 THEN 'true' ELSE 'false' END, iif(1,'true','false');
+} {true true}
 do_execsql_test e_expr-37.7 {
-   SELECT CASE WHEN 1.0 THEN 'true' ELSE 'false' END;
-} {true}
+   SELECT CASE WHEN 1.0 THEN 'true' ELSE 'false' END, iif(1.0,'true','false');
+} {true true}
 do_execsql_test e_expr-37.8 {
-   SELECT CASE WHEN 0.1 THEN 'true' ELSE 'false' END;
-} {true}
+   SELECT CASE WHEN 0.1 THEN 'true' ELSE 'false' END, iif(0.1,'true','false');
+} {true true}
 do_execsql_test e_expr-37.9 {
-   SELECT CASE WHEN -0.1 THEN 'true' ELSE 'false' END;
-} {true}
+   SELECT CASE WHEN -0.1 THEN 'true' ELSE 'false' END, iif(-0.1,'true','false');
+} {true true}
 do_execsql_test e_expr-37.10 {
-   SELECT CASE WHEN '1english' THEN 'true' ELSE 'false' END;
-} {true}
+   SELECT CASE WHEN '1english' THEN 'true' ELSE 'false' END, iif('1engl','true','false');
+} {true true}
 
 
 finish_test

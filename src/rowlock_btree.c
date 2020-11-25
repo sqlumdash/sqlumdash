@@ -35,8 +35,8 @@ int sqlite3BtreeRollback(Btree *p, int tripCode, int writeOnly){
 }
 
 #ifndef SQLITE_OMIT_BTREECOUNT
-int sqlite3BtreeCount(BtCursor *pCur, i64 *pnEntry){
-  return sqlite3BtreeCountAll(pCur, pnEntry);
+int sqlite3BtreeCount(sqlite3 *db, BtCursor *pCur, i64 *pnEntry){
+  return sqlite3BtreeCountAll(db, pCur, pnEntry);
 }
 #endif
 
@@ -46,7 +46,7 @@ int sqlite3BtreeBeginStmt(Btree *p, int iStatement){
 int sqlite3BtreeSavepoint(Btree *p, int op, int iSavepoint){
   return sqlite3TransBtreeSavepoint(p, op, iSavepoint);
 }
-int sqlite3BtreeCursor(Btree *p, int iTable, int wrFlag, struct KeyInfo *pKeyInfo, BtCursor *pCur){
+int sqlite3BtreeCursor(Btree *p, Pgno iTable, int wrFlag, struct KeyInfo *pKeyInfo, BtCursor *pCur){
   return sqlite3BtreeCursorAll(p, iTable, wrFlag, pKeyInfo, pCur, 0);
 }
 int sqlite3BtreeCloseCursor(BtCursor *pCur){
@@ -79,10 +79,19 @@ int sqlite3BtreePayload(BtCursor *pCur, u32 offset, u32 amt, void *pBuf){
 const void *sqlite3BtreePayloadFetch(BtCursor *pCur, u32 *pAmt){
   return sqlite3BtreePayloadFetchAll(pCur, pAmt);
 }
-int sqlite3BtreeCreateTable(Btree *p, int *piTable, int flags){
+
+int sqlite3VdbeMemFromBtree(BtCursor *pCur, u32 offset, u32 amt, Mem *pMem){
+  return sqlite3VdbeMemFromBtreeAll(pCur, offset, amt, pMem);
+}
+
+int sqlite3BtreePutData(BtCursor *pCsr, u32 offset, u32 amt, void *z){
+  return sqlite3BtreePutDataAll(pCsr, offset, amt, z);
+}
+
+int sqlite3BtreeCreateTable(Btree *p, Pgno *piTable, int flags){
   return sqlite3BtreeCreateTableWithTransOpen(p, piTable, flags);
 }
-int sqlite3BtreeDropTable(Btree *p, int iTable, int *piMoved){
+int sqlite3BtreeDropTable(Btree *p, Pgno iTable, int *piMoved){
   return sqlite3BtreeDropTableAll(p, iTable, piMoved);
 }
 int sqlite3BtreeUpdateMeta(Btree *p, int idx, u32 iMeta){
@@ -93,9 +102,6 @@ int sqlite3BtreeIsInTrans(Btree *p){
 }
 int sqlite3BtreeLockTable(Btree *p, int iTab, u8 isWriteLock){
   return sqlite3BtreeLockTableForRowLock(p, iTab, isWriteLock);
-}
-int sqlite3BtreeSetVersion(Btree *pBtree, int iVersion){
-  return sqlite3BtreeSetVersionWithTransOpen(pBtree, iVersion);
 }
 int sqlite3BtreeIncrVacuum(Btree *p){
   return sqlite3BtreeIncrVacuumForRowLock(p);
@@ -110,6 +116,14 @@ int hasSharedCacheTableLockOriginal(Btree *pBtree, Pgno iRoot, int isIndex, int 
 
 int btreeMovetoOriginal(BtCursor *pCur, const void *pKey, i64 nKey, int bias, int *pRes){
   return btreeMoveto(pCur, pKey, nKey, bias, pRes);
+}
+
+int sqlite3BtreePayloadChecked(BtCursor *pCur, u32 offset, u32 amt, void *pBuf) {
+  return sqlite3BtreePayloadCheckedAll(pCur, offset, amt, pBuf);
+}
+
+int saveAllCursorsOriginal(BtShared *pBt, Pgno iRoot, BtCursor *pExcept) {
+  return saveAllCursors(pBt, iRoot, pExcept);
 }
 
 int saveCursorPositionOriginal(BtCursor *pCur){
@@ -131,5 +145,14 @@ BtShared *sharedCacheListGet(void){
 int querySharedCacheTableLockOriginal(Btree *p, Pgno iTab, u8 eLock){
   return querySharedCacheTableLock(p, iTab, eLock);
 }
+
+void sqlite3BtreeIncrblobCursor(BtCursor *pCur){
+  sqlite3BtreeIncrblobCursorAll(pCur);
+}
+
+void invalidateIncrblobCursorsOriginal( Btree *pBtree, Pgno pgnoRoot, i64 iRow, int isClearTable){
+  invalidateIncrblobCursors(pBtree, pgnoRoot, iRow, isClearTable);
+}
+
 #endif
 #endif

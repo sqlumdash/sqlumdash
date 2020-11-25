@@ -18,6 +18,8 @@ sqlite3 sqlite ""
 
 proc execsql {sql} {
 
+  set sql [string map {{WITHOUT ROWID} {}} $sql]
+
   set lSql [list]
   set frag ""
   while {[string length $sql]>0} {
@@ -70,8 +72,8 @@ proc execsql {sql} {
 proc execsql_test {tn sql} {
   set res [execsql $sql]
   set sql [string map {string_agg group_concat} $sql]
-  set sql [string map [list {NULLS FIRST} {}] $sql]
-  set sql [string map [list {NULLS LAST} {}] $sql]
+  # set sql [string map [list {NULLS FIRST} {}] $sql]
+  # set sql [string map [list {NULLS LAST} {}] $sql]
   puts $::fd "do_execsql_test $tn {"
   puts $::fd "  [string trim $sql]"
   puts $::fd "} {$res}"

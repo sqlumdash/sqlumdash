@@ -109,19 +109,11 @@ static int rowlockIpcCreate(u8 iClass, u64 allocSize, char *name, MMAP_HANDLE *p
 }
 
 static void rowlockIpcClose(MMAP_HANDLE hMap, void *pMap, MUTEX_HANDLE *pMutex){
+/* Do not close mutex if it is saved in mmap (in case of Linux) */
+#if SQLITE_OS_WIN
   rowlockOsMutexClose(pMutex);
+#endif
   rowlockOsMmapClose(hMap, pMap);
-}
-
-/* Concatenate two strings and store it into buffer.
-** Return 0 if successful.
-*: Return 1 if buffer is too small.
-*/
-int rowlockStrCat(char *dest, size_t size, const char *src1, const char *src2){
-  size_t len = strlen(src1) + strlen(src2) + 1;
-  if( len>size ) return 1;
-  xSnprintf(dest, size, "%s%s", src1, src2);
-  return 0;
 }
 
 /*
@@ -152,7 +144,9 @@ int sqlite3rowlockIpcInit(IpcHandle *pHandle, u64 nByteRow, u64 nByteTable, cons
   char mtxNameTable[MAX_PATH_LEN] = {0};
   MUTEX_HANDLE rlMutex = {0};
   MUTEX_HANDLE tlMutex = {0};
-
+#if SQLITE_OS_UNIX
+  MUTEX_HANDLE *pMutex;
+#endif
   /* Calculate MMAP sizes. */
   nElemRow = (nByteRow - sizeof(RowMetaData)) / sizeof(RowElement);
   nElemTable = (nByteTable - sizeof(TableMetaData)) / (sizeof(TableElement) + sizeof(CachedRowid));
@@ -176,10 +170,28 @@ int sqlite3rowlockIpcInit(IpcHandle *pHandle, u64 nByteRow, u64 nByteTable, cons
   if( rc ) goto ipc_init_failed;
 
   /* Open mutex. */
+#if SQLITE_OS_WIN
   rc = rowlockOsMutexOpen(mtxNameRow, &rlMutex);
   if( rc ) goto ipc_init_failed;
   rc = rowlockOsMutexOpen(mtxNameTable, &tlMutex);
   if( rc ) goto ipc_init_failed;
+  memcpy(&pHandle->rlMutex, &rlMutex, sizeof(MUTEX_HANDLE));
+  memcpy(&pHandle->tlMutex, &tlMutex, sizeof(MUTEX_HANDLE));
+#else
+  /* Do not open mutex if it is available in mmap */
+  pMutex = &((RowMetaData*)pRecordLock)->mutex;
+  if( pMutex->init!=1 ){
+    rc = rowlockOsMutexOpen(mtxNameRow, &rlMutex);
+    if( rc ) goto ipc_init_failed;
+    memcpy(pMutex, &rlMutex, sizeof(MUTEX_HANDLE));
+  }
+  pMutex = &((TableMetaData*)pTableLock)->mutex;
+  if( pMutex->init!=1 ){
+    rc = rowlockOsMutexOpen(mtxNameTable, &tlMutex);
+    if( rc ) goto ipc_init_failed;
+    memcpy(pMutex, &tlMutex, sizeof(MUTEX_HANDLE));
+  }
+#endif
 
   /* Set output variable. */
   pHandle->pRecordLock = pRecordLock;
@@ -187,13 +199,6 @@ int sqlite3rowlockIpcInit(IpcHandle *pHandle, u64 nByteRow, u64 nByteTable, cons
   pHandle->owner = (u64)owner;
   pHandle->hRecordLock = hRecordLock;
   pHandle->hTableLock = hTableLock;
-#if SQLITE_OS_WIN
-  memcpy(&pHandle->rlMutex, &rlMutex, sizeof(MUTEX_HANDLE));
-  memcpy(&pHandle->tlMutex, &tlMutex, sizeof(MUTEX_HANDLE));
-#else
-  memcpy(&((RowMetaData*)pRecordLock)->mutex, &rlMutex, sizeof(MUTEX_HANDLE));
-  memcpy(&((TableMetaData*)pTableLock)->mutex, &tlMutex, sizeof(MUTEX_HANDLE));
-#endif
 
   return SQLITE_OK;
 
@@ -204,6 +209,7 @@ ipc_init_failed:
 }
 
 void sqlite3rowlockIpcFinish(IpcHandle *pHandle){
+  if( !pHandle ) return;
   sqlite3rowlockIpcUnlockRecordProc(pHandle, NULL);
   sqlite3rowlockIpcUnlockTablesProc(pHandle, NULL);
 #if SQLITE_OS_WIN
@@ -352,7 +358,5 @@ void rowlockIpcDelete(void *pMap, u8 iClass, u64 idxStart, u64 idxDel, u64 idxEn
 
   return;
 }
-
-
 
 #endif /* SQLITE_OMIT_ROWLOCK */

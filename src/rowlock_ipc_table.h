@@ -21,6 +21,8 @@
 /* Mutex name's suffix */
 #define MUTEX_SUFFIX_TABLELOCK "-tablelock-mutex"
 
+/* Define Process_id process table lock */
+#define PID_CLEANER 0
 
 typedef struct TableMetaData {
 #if SQLITE_OS_UNIX
